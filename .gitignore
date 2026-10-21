@@ -1,0 +1,4 @@
+node_modules/
+.openai/runtime/
+*.tar.gz
+.DS_Store

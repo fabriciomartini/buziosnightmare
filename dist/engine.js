@@ -386,7 +386,7 @@ export class Game {
     s.completedCount = 1;
     s.score = (RULES.officeMaxHits - s.office.hits) * 100;
     this.burst(coffee.x, coffee.y - 45, '#efcc78');
-    this.end(true, 'Café na mão! Leonardo chegou à copa do 12º andar da Torre B do EDISEN.');
+    this.end(true, 'Café na mão! Anderson chegou à copa do 12º andar da Torre B do EDISEN.');
     return true;
   }
 
@@ -641,7 +641,7 @@ export class Game {
         this.message(`${office.hits}/3 · ${label}! Desvie dos próximos.`, 'error');
         if (outcome.failed) {
           office.forms = office.forms.filter(f => f.active);
-          this.end(false, 'Três formulários alcançaram Leonardo antes do café. Hora de tentar outro caminho até a copa!');
+          this.end(false, 'Três formulários alcançaram Anderson antes do café. Hora de tentar outro caminho até a copa!');
           return;
         }
       }

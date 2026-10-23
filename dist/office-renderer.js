@@ -137,7 +137,7 @@ function middleOffice(c,s){
   for(const x of [1500,2890,4340,coffeeX-1030].filter((x,i,a)=>a.indexOf(x)===i))if(visible(x,116,cam)){rect(c,x,183,116,34,6,'#3d817e',INK,2);label(c,'COPA   →',x+58,201,13,'#eff6df');}
   c.restore();
 }
-function leonardoCubicle(c){
+function andersonCubicle(c){
   // Starting point: lovingly excessive paper piles and an unmistakable nameplate.
   officeChair(c,205,463);
   rect(c,45,306,302,139,5,'#c2d5d0',INK,2);rect(c,52,314,286,65,3,'#dbe7dd','#8eaaa0',1.5);
@@ -145,7 +145,7 @@ function leonardoCubicle(c){
   rect(c,54,415,72,44,3,'#cfdbce','#91a79c',1.5);ln(c,71,428,108,428,'#789c8e',3);ln(c,71,447,108,447,'#789c8e',3);
   monitor(c,270,391);paperPile(c,62,388,27,72);paperPile(c,135,388,17,66);
   c.save();c.translate(95,294);c.rotate(-.07);rect(c,-30,-14,71,28,3,'#f7dc90',INK,1.5);label(c,'URGENTE',5,0,10,'#a05b40');c.restore();
-  rect(c,140,318,119,31,5,'#447f79',INK,2);label(c,'LEONARDO',199.5,334,12,'#eff8db');
+  rect(c,140,318,119,31,5,'#447f79',INK,2);label(c,'ANDERSON',199.5,334,12,'#eff8db');
   rect(c,285,325,31,29,2,'#f4da91','#c1ab72',1);label(c,'café?',300,338,8,'#8c7745');
   rect(c,45,471,314,12,3,'#75958a',INK,2);
 }
@@ -227,7 +227,7 @@ function face(c,cx,cy,r=25,facing=1,stress=false){
 function sleeve(c,x,y,angle,shade='#d5e7eb'){
   c.save();c.translate(x,y);c.rotate(angle);rect(c,-6,-2,13,26,5,shade,INK,2);rect(c,-6,19,13,7,2,'#f2f4e9',INK,1.3);oval(c,.5,29,6,7,'#efc39c',INK,1.6);c.restore();
 }
-export function drawLeonardo(c,x,y,o={}){
+export function drawAnderson(c,x,y,o={}){
   c.save();c.translate(x,y);if(o.scale)c.scale(o.scale,o.scale);
   const t=o.time||0,walk=o.walking?Math.sin(t*13):0,facing=o.facing===-1?-1:1;
   oval(c,0,-1,o.ducking?31:26,5,'#254f4126');
@@ -251,7 +251,7 @@ export function drawLeonardo(c,x,y,o={}){
     face(c,0,-85,25,facing,Boolean(o.stress));
     if(o.success)cup(c,31,-39,.7,t);
   }
-  if(o.player){rect(c,-38,o.ducking?-83:-141,76,17,5,'#e4f1d3',INK,1.8);label(c,'LEONARDO',0,o.ducking?-74.5:-132.5,9);}
+  if(o.player){rect(c,-38,o.ducking?-83:-141,76,17,5,'#e4f1d3',INK,1.8);label(c,'ANDERSON',0,o.ducking?-74.5:-132.5,9);}
   c.restore();
 }
 function department(origin){
@@ -298,7 +298,7 @@ function form(c,f,t,reduce=false){
 }
 function specialAnnouncement(c,cue,s,style,reduce){
   const duration=cue.warningDuration||.65,started=cue.startedAt??cue.until-duration,age=Math.max(0,(s.elapsed||0)-started),intro=Math.min(1,age/.18);
-  // A short arrival bounce stays well above Leonardo and the projectile lane.
+  // A short arrival bounce stays well above Anderson and the projectile lane.
   const scale=reduce?1:intro<.72?.86+intro/.72*.17:1.03-(intro-.72)/.28*.03;
   c.save();c.translate(600,108+(reduce?0:(1-intro)*-8));c.scale(scale,scale);
   poly(c,[[-220,-20],[-240,-20],[-231,0],[-240,20],[-220,20]],style.color,style.dark,2);
@@ -322,14 +322,14 @@ export function drawOffice(c,s){
   c.save();c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,1200,600);c.lineCap='round';c.lineJoin='round';
   windows(c,s);backWorkstations(c,s);middleOffice(c,s);floor(c,s);
   c.save();c.translate(-cam,0);
-  if(visible(35,330,cam))leonardoCubicle(c);
+  if(visible(35,330,cam))andersonCubicle(c);
   if(visible(coffee.x-185,385,cam))pantry(c,coffee,t);
   (s.platforms||[]).forEach((d,i)=>{if(visible(d.x,d.w,cam))desk(c,d,i);});
   for(const f of office.forms||[])if(visible(f.x-90,180,cam))form(c,f,t,reduce);
   if(s.player){
     const invulnerable=t<(office.invulnerableUntil||0),p=s.player;
     c.save();if(invulnerable&&Math.floor(t*13)%2)c.globalAlpha=.38;
-    drawLeonardo(c,p.x,p.y,{time:t,walking:p.walking,facing:p.facing,ducking:p.ducking,stress:(office.hits||0)>0||p.walking,player:true,success:coffee.collected});c.restore();
+    drawAnderson(c,p.x,p.y,{time:t,walking:p.walking,facing:p.facing,ducking:p.ducking,stress:(office.hits||0)>0||p.walking,player:true,success:coffee.collected});c.restore();
     if(invulnerable){for(let i=0;i<3;i++){const a=t*5+i*2.1;label(c,'✦',p.x+Math.cos(a)*36,p.y-(p.ducking?66:120)+Math.sin(a)*9,13,'#bb874b');}}
   }
   for(const p of s.particles||[]){c.globalAlpha=Math.min(1,Math.max(0,p.life/(p.maxLife||1)));oval(c,p.x,p.y,p.size||3,p.size||3,p.color||'#f4d074');}c.restore();
@@ -340,5 +340,5 @@ export function drawOffice(c,s){
 }
 export function drawOfficePortrait(c,size=128){
   c.save();c.clearRect(0,0,c.canvas?.width||size,c.canvas?.height||size);oval(c,size/2,size/2,size*.46,size*.46,'#c7dfdb');
-  c.translate(size/2,size*.96);c.scale(size/128,size/128);drawLeonardo(c,0,0,{time:0,walking:false,scale:1});c.restore();
+  c.translate(size/2,size*.96);c.scale(size/128,size/128);drawAnderson(c,0,0,{time:0,walking:false,scale:1});c.restore();
 }

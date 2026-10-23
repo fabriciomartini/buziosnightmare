@@ -21,7 +21,7 @@ Abra `http://localhost:8080`. Sirva os arquivos por HTTP: abrir o HTML diretamen
 | SMS | Jaqueline | Registrar cinco desvios reais de EPI; trabalhadores corrigem o desvio dois segundos após aparecerem. Acerto +1; falso registro −1; placar negativo encerra a tentativa. |
 | IEEI | José Roberto | Recuperar três pontos em menos de 60s: jato d’água, escova, neutralizador, pintura. Cada etapa exige segurar e arrastar o mouse sobre a corrosão. |
 | IED | Willian | **Segura essa vibração!** Integrar motor e bomba, compressor e conjunto final em 90s. Três acertos de alinhamento e quatro segundos de rotação estável por máquina; passarelas e portões se estabilizam/liberam conforme o avanço. |
-| PSPO | Leonardo | Correr da baia até a copa do 12º andar da Torre B do EDISEN, saltar mesas e desviar dos formulários. Percurso ampliado com dois forms especiais — Remarcação de retorno e Urgente — que aparecem uma vez cada por tentativa. Derrota no terceiro impacto; vitória ao pegar café na máquina. |
+| PSPO | Anderson | Correr da baia até a copa do 12º andar da Torre B do EDISEN, saltar mesas e desviar dos formulários. Percurso ampliado com dois forms especiais — Remarcação de retorno e Urgente — que aparecem uma vez cada por tentativa. Derrota no terceiro impacto; vitória ao pegar café na máquina. |
 | Pré-Op / P-83 | Equipe P-83 | **Proposta de roteiro.** Preparar três sistemas em 75s: prontidão CCM, verificação em campo, documentação e aprovação. Ordem incorreta custa 5s. |
 
 As sequências são simplificações lúdicas, sem valor de procedimento de engenharia, inspeção ou operação. O marco final da Pré-Op usa a terminologia “TAP aprovada (FIC concluída)”. Os personagens são ilustrações genéricas e não retratos das pessoas citadas. Willian, no IED, usa macacão laranja.
@@ -72,6 +72,6 @@ O PSPO se passa no **12º andar da Torre B**, conforme o roteiro do usuário. A 
 - [Edo Rocha Arquiteturas — Centro Empresarial Senado/Petrobras](https://edorocha.com.br/centro-empresarial-senado-petrobras/): fotografias do conjunto, fachadas de vidro azulado, montantes claros e volumes escalonados.
 - [SCENO — portfólio](https://www.sceno.com.br/projeto): fotografia identificada como Petrobras/Senado, com recepção, sinalização e acabamentos claros. Referência de áreas comuns; não de baias do 12º andar.
 
-As imagens serviram de referência visual. O jogo usa desenhos originais em Canvas, sem incorporar fotografias de terceiros. Leonardo é uma ilustração genérica vestindo camisa social, calça de sarja e sapatos sociais.
+As imagens serviram de referência visual. O jogo usa desenhos originais em Canvas, sem incorporar fotografias de terceiros. Anderson é uma ilustração genérica vestindo camisa social, calça de sarja e sapatos sociais.
 
 Conquistas já salvas na primeira versão são preservadas. A missão IED entra entre IEEI e PSPO; no modo Livre pode ser acessada imediatamente. Conquistas anteriores continuam acessíveis mesmo com a inclusão da nova fase.

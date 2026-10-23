@@ -20,11 +20,11 @@ Abra `http://localhost:8080`. Sirva os arquivos por HTTP: abrir o HTML diretamen
 |---|---|---|
 | SMS | Jaqueline | Registrar cinco desvios reais de EPI; trabalhadores corrigem o desvio dois segundos após aparecerem. Acerto +1; falso registro −1; placar negativo encerra a tentativa. |
 | IEEI | José Roberto | Recuperar três pontos em menos de 60s: jato d’água, escova, neutralizador, pintura. Cada etapa exige segurar e arrastar o mouse sobre a corrosão. |
-| IED | Gerente do IED | **Segura essa vibração!** Integrar motor e bomba, compressor e conjunto final em 90s. Três acertos de alinhamento e quatro segundos de rotação estável por máquina; passarelas e portões se estabilizam/liberam conforme o avanço. |
+| IED | Willian | **Segura essa vibração!** Integrar motor e bomba, compressor e conjunto final em 90s. Três acertos de alinhamento e quatro segundos de rotação estável por máquina; passarelas e portões se estabilizam/liberam conforme o avanço. |
 | PSPO | Leonardo | Correr da baia até a copa do 12º andar da Torre B do EDISEN, saltar mesas e desviar dos formulários. Derrota no terceiro impacto; vitória ao pegar café na máquina. |
 | Pré-Op / P-83 | Equipe P-83 | **Proposta de roteiro.** Preparar três sistemas em 75s: prontidão CCM, verificação em campo, documentação e aprovação. Ordem incorreta custa 5s. |
 
-As sequências são simplificações lúdicas, sem valor de procedimento de engenharia, inspeção ou operação. O marco final da Pré-Op usa a terminologia “TAP aprovada (FIC concluída)”. Os personagens são ilustrações genéricas e não retratos das pessoas citadas.
+As sequências são simplificações lúdicas, sem valor de procedimento de engenharia, inspeção ou operação. O marco final da Pré-Op usa a terminologia “TAP aprovada (FIC concluída)”. Os personagens são ilustrações genéricas e não retratos das pessoas citadas. Willian, no IED, usa macacão laranja.
 
 ## Controles e modos
 
@@ -63,7 +63,7 @@ Os testes cobrem os limites de tempo, pontuação, sequência dos tratamentos, p
 
 ## Próximos roteiros
 
-Confirmar a proposta da Pré-Op/P-83 e personalizar o personagem do IED quando seu nome for informado. A demonstração é executada localmente no navegador e não chama APIs de IA durante a partida.
+Confirmar a proposta da Pré-Op/P-83. A demonstração é executada localmente no navegador e não chama APIs de IA durante a partida.
 
 ## Referências do EDISEN
 

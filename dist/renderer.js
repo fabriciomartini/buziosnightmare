@@ -189,7 +189,7 @@ export function drawGame(c,s,dt=0){
   (s.stations||[]).forEach((p,i)=>station(c,p,i,s));c.restore();
   if(s.stageId==='ied')drawIEDScene(c,s);
   workers(c,s);
-  if(s.player){c.save();c.translate(-(s.camera||0),0);const p=s.player;character(c,p.x,p.y,{time:s.elapsed||0,walking:p.walking,facing:p.facing,player:true,female:s.stageId==='sms',role:s.stageId,helmet:true,glasses:true,hearing:s.stageId==='ied',hat:s.stageId==='sms'?'#fff1c4':s.stageId==='ieei'?'#badaac':'#fff0bd',shirt:s.stageId==='sms'?'#3e9e92':s.stageId==='ieei'?'#70a88a':s.stageId==='ied'?'#739ba5':'#e89a48'});c.restore();}
+  if(s.player){c.save();c.translate(-(s.camera||0),0);const p=s.player;character(c,p.x,p.y,{time:s.elapsed||0,walking:p.walking,facing:p.facing,player:true,female:s.stageId==='sms',role:s.stageId,helmet:true,glasses:true,hearing:s.stageId==='ied',hat:s.stageId==='sms'?'#fff1c4':s.stageId==='ieei'?'#badaac':'#fff0bd',shirt:s.stageId==='sms'?'#3e9e92':s.stageId==='ieei'?'#70a88a':s.stageId==='ied'?'#ed9443':'#e89a48',pants:s.stageId==='ied'?'#d97c32':undefined});c.restore();}
   c.save();c.translate(-(s.camera||0),0);
   for(const p of s.particles||[]){c.globalAlpha=Math.min(1,Math.max(0,p.life/(p.maxLife||1)));ellipse(c,p.x,p.y,p.size||3,p.size||3,p.color||'#f1d270');}
   c.restore();
@@ -199,5 +199,5 @@ export function drawGame(c,s,dt=0){
 
 export function drawPortrait(c,who='sms',size=128){
   if(who==='pspo'){drawOfficePortrait(c,size);return;}
-  c.save();c.clearRect(0,0,size,size);ellipse(c,size/2,size/2,size*.46,size*.46,who==='sms'?'#d5e6b0':who==='ieei'?'#f5d487':'#b9dad0');c.translate(size/2,size*.96);c.scale(size/128,size/128);character(c,0,0,{time:0,player:false,female:who==='sms',role:who,helmet:true,glasses:true,hearing:who==='ied',hat:who==='ieei'?'#bad9a6':'#fff1be',shirt:who==='sms'?'#3e9e92':who==='ieei'?'#75a98a':who==='ied'?'#739ba5':'#e89a48',scale:1.03});c.restore();
+  c.save();c.clearRect(0,0,size,size);ellipse(c,size/2,size/2,size*.46,size*.46,who==='sms'?'#d5e6b0':who==='ieei'?'#f5d487':'#b9dad0');c.translate(size/2,size*.96);c.scale(size/128,size/128);character(c,0,0,{time:0,player:false,female:who==='sms',role:who,helmet:true,glasses:true,hearing:who==='ied',hat:who==='ieei'?'#bad9a6':'#fff1be',shirt:who==='sms'?'#3e9e92':who==='ieei'?'#75a98a':who==='ied'?'#ed9443':'#e89a48',pants:who==='ied'?'#d97c32':undefined,scale:1.03});c.restore();
 }

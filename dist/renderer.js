@@ -1,4 +1,5 @@
 // Original vector artwork. Everything is drawn locally; no image downloads required.
+import { drawOffice, drawOfficePortrait } from './office-renderer.js';
 const INK = '#203f42';
 const C = { ink:INK, cream:'#fff4ce', teal:'#3a9d96', tealDark:'#28746f', mint:'#a8d4aa', orange:'#ef923c', yellow:'#f4c759', rust:'#b84f32' };
 
@@ -173,6 +174,7 @@ function sign(c,x,y,title,sub){
   c.save();c.translate(x,y);line(c,-54,0,-54,77,'#645f43',7);line(c,54,0,54,77,'#645f43',7);rr(c,-94,-44,188,65,8,'#f5d576',INK,3);rr(c,-85,-35,170,47,4,null,'#bb9643',1);text(c,title,0,-19,18);if(sub)text(c,sub,0,1,10,'#51604b');bolt(c,-83,-27);bolt(c,83,-27);c.restore();
 }
 export function drawGame(c,s,dt=0){
+  if(s?.stageId==='pspo'){drawOffice(c,s);return;}
   if(!s)return;c.save();c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,1200,600);c.lineCap='round';c.lineJoin='round';
   distant(c,s.camera||0,s.elapsed||0);backgroundIndustry(c,s);deck(c,s);
   c.save();c.translate(-(s.camera||0),0);
@@ -191,5 +193,6 @@ export function drawGame(c,s,dt=0){
 }
 
 export function drawPortrait(c,who='sms',size=128){
+  if(who==='pspo'){drawOfficePortrait(c,size);return;}
   c.save();c.clearRect(0,0,size,size);ellipse(c,size/2,size/2,size*.46,size*.46,who==='sms'?'#d5e6b0':who==='ieei'?'#f5d487':'#b9dad0');c.translate(size/2,size*.96);c.scale(size/128,size/128);character(c,0,0,{time:0,player:false,female:who==='sms',role:who,helmet:true,glasses:true,hat:who==='ieei'?'#bad9a6':'#fff1be',shirt:who==='sms'?'#3e9e92':who==='ieei'?'#75a98a':'#e89a48',scale:1.03});c.restore();
 }

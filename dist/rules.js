@@ -9,6 +9,9 @@ export const RULES = Object.freeze({
   workPixelsPerStep: 180,
   repairSteps: 4,
   tapSteps: 3,
+  officeMaxHits: 3,
+  officeInvulnerabilitySeconds: 1.2,
+  officeWarningSeconds: 0.75,
 });
 
 export function clamp(value, minimum, maximum) {
@@ -62,4 +65,19 @@ export function tapOutcome(step, choice) {
 
 export function deadlineExpired(elapsed, limit) {
   return limit !== null && elapsed >= limit;
+}
+
+export function rectanglesOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+export function officeHitOutcome(hits, elapsed, invulnerableUntil) {
+  if (elapsed < invulnerableUntil) return { hits, invulnerableUntil, damaged: false, failed: false };
+  const nextHits = Math.min(RULES.officeMaxHits, hits + 1);
+  return {
+    hits: nextHits,
+    invulnerableUntil: elapsed + RULES.officeInvulnerabilitySeconds,
+    damaged: true,
+    failed: nextHits >= RULES.officeMaxHits,
+  };
 }

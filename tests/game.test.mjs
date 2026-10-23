@@ -379,3 +379,169 @@ test('pure rules preserve exact boundaries and reject invalid work samples', () 
   assert.equal(deadlineExpired(59.999, 60), false);
   assert.equal(deadlineExpired(60, 60), true);
 });
+
+const officeForm = (player, id = 90, y = player.y - 55) => ({
+  id: `form-${id}`, x: player.x, y, w: 44, h: 56, vx: 0, vy: 0,
+  origin: ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'][id % 4], angle: 0, active: true,
+});
+
+test('PSPO: desks are solid, harmless, and traversable only after a jump', t => {
+  const h = harness(t);
+  h.game.start('pspo'); h.frame();
+  const s = h.game.state, desk = s.platforms[0];
+  assert.equal(s.worldWidth, 5600);
+  assert.equal(s.platforms.length, 7);
+  assert.equal(s.ladders.length, 0);
+  assert.equal(s.timeLeft, null);
+  s.player.x = desk.x - 40;
+  h.game.setControl('ArrowRight', true);
+  for (let i = 0; i < 20; i++) h.game.update(1 / 120);
+  assert.equal(s.player.x, desk.x - 18, 'walking is stopped at the desk edge');
+  assert.equal(s.player.y, 500);
+  assert.equal(s.office.hits, 0, 'furniture is not a damaging obstacle');
+  h.game.setControl('Space', true);
+  for (let i = 0; i < 95; i++) h.game.update(1 / 120);
+  assert.ok(s.player.x > desk.x + desk.w, 'a real jump crosses the tabletop');
+  assert.equal(s.office.hits, 0);
+});
+
+test('PSPO: a form counts once, recovery prevents stacked hits, and only the third hit loses', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  s.office.forms.push(officeForm(s.player, 90));
+  h.game.update(0);
+  assert.equal(s.office.hits, 1);
+  assert.equal(s.mode, 'playing');
+  assert.equal(s.office.forms.length, 0, 'a colliding form is removed');
+  s.office.forms.push(officeForm(s.player, 91));
+  h.game.update(0.5);
+  assert.equal(s.office.hits, 1);
+  assert.equal(s.office.forms.length, 0, 'contact while recovering cannot cause a later delayed hit');
+  h.game.update(0.7);
+  s.office.forms.push(officeForm(s.player, 92));
+  h.game.update(0);
+  assert.equal(s.office.hits, 2);
+  assert.equal(s.mode, 'playing');
+  h.game.update(1.2);
+  s.office.forms.push(officeForm(s.player, 93));
+  h.game.update(0);
+  assert.equal(s.office.hits, 3);
+  assert.equal(s.mode, 'ended');
+  assert.equal(h.endings[0].success, false);
+  assert.equal(h.endings[0].hits, 3);
+  h.game.update(1000);
+  assert.equal(h.endings.length, 1);
+});
+
+test('PSPO: ducking avoids a chest-height form but standing in its path causes a hit', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  h.game.setControl('ArrowDown', true);
+  s.office.forms.push(officeForm(s.player, 94, 420));
+  h.game.update(0);
+  assert.equal(s.player.ducking, true);
+  assert.equal(s.office.hits, 0);
+  h.game.setControl('ArrowDown', false);
+  h.game.update(0);
+  assert.equal(s.player.ducking, false);
+  assert.equal(s.office.hits, 1);
+});
+
+test('PSPO: reaching the copa is not victory until a nearby coffee is collected', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state, coffee = s.office.coffee;
+  h.key('KeyE'); h.click(coffee.x, coffee.y);
+  assert.equal(s.office.coffee.collected, false, 'remote keyboard and pointer attempts are rejected');
+  assert.equal(s.mode, 'playing');
+  s.player.x = coffee.x - 100;
+  h.game.update(0);
+  assert.equal(s.mode, 'playing', 'proximity alone does not finish the mission');
+  h.click(coffee.x, coffee.y);
+  assert.equal(s.office.coffee.collected, true);
+  assert.equal(s.office.progress, 1);
+  assert.equal(s.correct, 1);
+  assert.equal(h.endings[0].success, true);
+  assert.equal(h.endings[0].distance, coffee.x - 165);
+  h.game.start('pspo');
+  h.game.state.player.x = h.game.state.office.coffee.x - 100;
+  h.game.setControl('KeyE', true);
+  assert.equal(h.game.state.mode, 'ended', 'touch control follows the same coffee collection path');
+});
+
+test('PSPO: spawn cues are deterministic, pause freezes the office, and restart removes forms', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  s.player.x = 400; h.game.update(0);
+  assert.equal(s.office.telegraph.origin, 'IED');
+  assert.equal(s.office.telegraph.until, 0.75);
+  assert.equal(s.office.forms.length, 0);
+  h.game.update(0.75);
+  assert.equal(s.office.forms[0].origin, 'IED');
+  assert.equal(s.office.forms[0].y, 450);
+  h.game.setControl('ArrowDown', true); h.game.update(0);
+  const formX = s.office.forms[0].x, elapsed = s.elapsed, distance = s.office.distance;
+  h.game.pause(true); h.game.update(40);
+  assert.equal(s.elapsed, elapsed);
+  assert.equal(s.office.forms[0].x, formX);
+  assert.equal(s.player.ducking, false);
+  assert.equal(h.game.keys.size, 0);
+  h.game.pause(false);
+  s.player.x = 200; h.game.update(0);
+  assert.equal(s.office.distance, distance, 'backtracking does not erase achieved route progress');
+  h.game.start('pspo');
+  assert.equal(h.game.state.office.forms.length, 0);
+  assert.equal(h.game.state.office.hits, 0);
+  assert.equal(h.game.state.office.progress, 0);
+  assert.equal(h.game.state.office.spawnIndex, 0);
+  assert.equal(h.game.state.office.telegraph, null);
+  h.game.start('sms');
+  assert.equal(h.game.state.office, null);
+  assert.equal(h.game.state.worldWidth, 3400);
+  assert.equal(h.game.state.workers.length, 19);
+});
+
+test('PSPO: the full corridor is beatable using only normal movement, jumps, ducking and coffee control', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  const origins = new Set();
+  const crossed = new Set();
+  let jumps = 0;
+  // This route controller reads the same desk and projectile positions visible
+  // to a player. It never teleports, removes forms, changes lives or grants immunity.
+  for (let frame = 0; frame < 18000 && s.mode === 'playing'; frame++) {
+    const p = s.player, office = s.office;
+    let right = true, duck = false, jump = false;
+    if (office.telegraph) { right = false; origins.add(office.telegraph.origin); }
+    const incoming = office.forms.find(form => form.active && form.x > p.x - 65);
+    if (incoming) {
+      origins.add(incoming.origin);
+      const dx = incoming.x - p.x;
+      if (incoming.y >= 440) {
+        right = !p.grounded || dx <= 140;
+        jump = p.grounded && dx <= 140 && dx > -40;
+      } else if (incoming.y >= 400) { right = false; duck = true; }
+      else right = false;
+    }
+    const desk = s.platforms.find(d => d.x >= p.x && d.x - (p.x + 18) < 55);
+    if (right && desk && p.grounded) jump = true;
+    h.game.setControl('ArrowRight', right);
+    h.game.setControl('ArrowDown', duck && !jump);
+    if (jump) { h.game.setControl('Space', true); jumps++; }
+    h.game.update(1 / 120);
+    h.game.setControl('Space', false);
+    for (const [index, desk] of s.platforms.entries()) if (p.x > desk.x + desk.w) crossed.add(index);
+    if (p.x >= office.coffee.x - 110) h.game.setControl('KeyE', true);
+  }
+  assert.equal(s.mode, 'ended', 'the route reaches a terminal state');
+  assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason || `stuck at ${s.player.x}`);
+  assert.equal(s.office.hits, 0, 'each form pattern has a safe response');
+  assert.equal(crossed.size, 7, 'all seven solid desks were crossed');
+  assert.ok(jumps >= 7);
+  assert.deepEqual([...origins].sort(), ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'].sort());
+  assert.equal(s.office.coffee.collected, true);
+});

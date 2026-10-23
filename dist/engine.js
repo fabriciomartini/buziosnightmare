@@ -1,5 +1,5 @@
 import { drawGame } from './renderer.js';
-import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, tapOutcome, deadlineExpired } from './rules.js';
+import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, tapOutcome, deadlineExpired, rectanglesOverlap, officeHitOutcome } from './rules.js';
 
 const WIDTH = 1200;
 const HEIGHT = 600;
@@ -8,9 +8,24 @@ const STAGES = {
   sms: { label: 'SMS · Olho vivo no convés', objective: 'Registre 5 desvios antes que os trabalhadores os corrijam.', limit: null },
   ieei: { label: 'IEEI · Operação anticorrosão', objective: 'Trate os 3 pontos de corrosão em menos de 60 segundos.', limit: RULES.repairSeconds },
   preop: { label: 'Pré-Op / P-83 · Prontos para a TAP', objective: 'Conclua a preparação dos 3 sistemas em menos de 75 segundos.', limit: RULES.tapSeconds },
+  pspo: { label: 'PSPO · A missão do café', objective: 'Salte as mesas, evite os formulários e pegue um café na copa.', limit: null },
 };
 const RISK_LABELS = { glasses: 'Sem óculos de proteção', helmet: 'Sem capacete', hearing: 'Sem protetor auricular' };
 const TOOL_LABELS = ['Jato d’água', 'Escova', 'Neutralizador', 'Pintura'];
+const OFFICE_DESKS = [
+  { x: 700, y: 430, w: 120, h: 70 },
+  { x: 1350, y: 425, w: 130, h: 75 },
+  { x: 2000, y: 435, w: 115, h: 65 },
+  { x: 2660, y: 430, w: 125, h: 70 },
+  { x: 3320, y: 425, w: 130, h: 75 },
+  { x: 3980, y: 435, w: 115, h: 65 },
+  { x: 4580, y: 430, w: 120, h: 70 },
+];
+// Each distance slot launches one form, with advance warning and no random bursts.
+// Stopping between desks remains a valid strategy for reading and avoiding it.
+const OFFICE_FORM_SLOTS = [180, 820, 1460, 2100, 2740, 3380, 4020, 4660];
+const OFFICE_FORM_HEIGHTS = [450, 375, 420, 450, 375, 420, 450, 420];
+const OFFICE_FORM_ORIGINS = ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'];
 
 function makeWorkers() {
   const hazards = [440, 920, 1310, 1495, 1690, 1890, 2085, 2280, 2470, 2660, 2880, 3160];
@@ -31,17 +46,22 @@ function freshState(stageId) {
     stageLabel: config.label,
     objective: config.objective,
     mode: 'playing',
-    worldWidth: 3400,
+    worldWidth: stageId === 'pspo' ? 5600 : 3400,
     camera: 0,
     elapsed: 0,
-    player: { x: 165, y: GROUND, vx: 0, vy: 0, facing: 1, walking: false, grounded: true, climbing: false },
-    platforms: [
+    player: { x: 165, y: GROUND, vx: 0, vy: 0, facing: 1, walking: false, grounded: true, climbing: false, ducking: false },
+    platforms: stageId === 'pspo' ? OFFICE_DESKS.map(desk => ({ ...desk })) : [
       { x: 730, y: 430, w: 135, h: 70 },
       { x: 1320, y: 350, w: 315, h: 22 },
       { x: 2210, y: 400, w: 245, h: 22 },
       { x: 2930, y: 435, w: 125, h: 65 },
     ],
-    ladders: [{ x: 1365, y: 350, w: 48, h: 150 }, { x: 2260, y: 400, w: 48, h: 100 }],
+    ladders: stageId === 'pspo' ? [] : [{ x: 1365, y: 350, w: 48, h: 150 }, { x: 2260, y: 400, w: 48, h: 100 }],
+    office: stageId === 'pspo' ? {
+      hits: 0, maxHits: RULES.officeMaxHits, invulnerableUntil: 0, progress: 0,
+      forms: [], coffee: { x: 5370, y: 430, collected: false }, distance: 0,
+      deskCount: OFFICE_DESKS.length, spawnIndex: 0, telegraph: null,
+    } : null,
     workers: stageId === 'sms' ? makeWorkers() : [],
     rust: stageId === 'ieei' ? [
       { id: 'rust-1', x: 470, y: 434, step: 0, progress: 0, label: 'Linha de processo' },
@@ -105,7 +125,7 @@ export class Game {
     this.state.attempt = this.attempts[stageId] = (this.attempts[stageId] || 0) + 1;
     this.lastTime = null;
     this.lastUpdate = 0;
-    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
+    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
     this.emit();
   }
 
@@ -116,6 +136,7 @@ export class Game {
     this.state.mode = value ? 'paused' : 'playing';
     this.keys.clear();
     this.jumpQueued = false;
+    this.state.player.ducking = false;
     this.lastTime = null;
     this.emit();
   }
@@ -123,6 +144,11 @@ export class Game {
   handleKeyDown(event) {
     if (!this.state || this.state.mode !== 'playing') return;
     if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.code === 'KeyE' && this.state.stageId === 'pspo') {
+      event.preventDefault();
+      if (!event.repeat) this.collectCoffee();
+      return;
+    }
     const accepted = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
     if (!accepted.includes(event.code)) return;
     if (event.code === 'Space' && event.target?.closest?.('button')) return;
@@ -136,6 +162,8 @@ export class Game {
 
   // Optional touch controls can call this without synthesizing browser events.
   setControl(code, pressed) {
+    if (code === 'KeyE') { if (pressed) this.collectCoffee(); return; }
+    if (pressed && this.state?.mode !== 'playing') return;
     if (pressed) {
       this.keys.add(code);
       if (['Space', 'ArrowUp'].includes(code)) this.jumpQueued = true;
@@ -151,6 +179,11 @@ export class Game {
     const s = this.state;
     if (!s || s.mode !== 'playing' || s.activeTarget || event.button > 0) return;
     const point = this.pointerPosition(event);
+    if (s.stageId === 'pspo') {
+      const coffee = s.office.coffee;
+      if (Math.abs(point.x - coffee.x) <= 90 && point.y >= coffee.y - 120 && point.y <= coffee.y + 70) this.collectCoffee();
+      return;
+    }
     if (s.stageId === 'sms') {
       const worker = [...s.workers].reverse().find(w =>
         (Math.abs(point.x - w.x) <= 38 && point.y >= w.y - 120 && point.y <= w.y + 5) ||
@@ -216,6 +249,25 @@ export class Game {
     const s = this.state;
     if (!s?.activeTarget) return null;
     return (s.activeTarget.type === 'repair' ? s.rust : s.stations).find(t => t.id === s.activeTarget.id) || null;
+  }
+
+  collectCoffee() {
+    const s = this.state;
+    if (!s || s.mode !== 'playing' || !s.office || s.office.coffee.collected) return false;
+    const coffee = s.office.coffee;
+    if (Math.abs(s.player.x - coffee.x) > 125 || Math.abs(s.player.y - coffee.y) > 125) {
+      this.message('A copa fica no fim do corredor. Aproxime-se da máquina para pegar o café.', 'info');
+      return false;
+    }
+    coffee.collected = true;
+    s.office.progress = 1;
+    s.office.distance = coffee.x - 165;
+    s.correct = 1;
+    s.completedCount = 1;
+    s.score = (RULES.officeMaxHits - s.office.hits) * 100;
+    this.burst(coffee.x, coffee.y - 45, '#efcc78');
+    this.end(true, 'Café na mão! Leonardo chegou à copa do 12º andar da Torre B do EDISEN.');
+    return true;
   }
 
   chooseTool(index) {
@@ -295,7 +347,92 @@ export class Game {
     }
   }
 
+  updateOfficePhysics(dt) {
+    const s = this.state, p = s.player;
+    const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
+    const right = this.keys.has('ArrowRight') || this.keys.has('KeyD');
+    const down = this.keys.has('ArrowDown') || this.keys.has('KeyS');
+    p.ducking = Boolean(down && p.grounded && !this.jumpQueued);
+    p.climbing = false;
+    p.vx = ((right ? 1 : 0) - (left ? 1 : 0)) * (p.ducking ? 170 : 290);
+    if (p.vx) p.facing = Math.sign(p.vx);
+    if (this.jumpQueued && p.grounded) { p.vy = -560; p.grounded = false; p.ducking = false; }
+    this.jumpQueued = false;
+    const oldX = p.x, oldY = p.y;
+    p.vy += 1500 * dt;
+    let nextY = p.y + p.vy * dt;
+    let nextX = clamp(p.x + p.vx * dt, 40, s.worldWidth - 45);
+    const halfWidth = 18, height = p.ducking ? 52 : 96;
+    // Office furniture is solid: walking into its edge stops movement, but costs
+    // no life. The player must jump until their feet clear the tabletop.
+    for (const desk of s.platforms) {
+      if (nextY <= desk.y + 0.5 || nextY - height >= desk.y + desk.h) continue;
+      if (p.vx > 0 && oldX + halfWidth <= desk.x + 0.5 && nextX + halfWidth > desk.x) nextX = desk.x - halfWidth;
+      if (p.vx < 0 && oldX - halfWidth >= desk.x + desk.w - 0.5 && nextX - halfWidth < desk.x + desk.w) nextX = desk.x + desk.w + halfWidth;
+    }
+    p.x = nextX;
+    p.grounded = false;
+    if (p.vy >= 0) for (const desk of s.platforms) {
+      if (p.x + halfWidth > desk.x && p.x - halfWidth < desk.x + desk.w && oldY <= desk.y + 2 && nextY >= desk.y) {
+        nextY = desk.y; p.vy = 0; p.grounded = true;
+      }
+    }
+    if (nextY >= GROUND) { nextY = GROUND; p.vy = 0; p.grounded = true; }
+    p.y = nextY;
+    p.walking = Math.abs(p.x - oldX) > 0.01;
+    if (!p.walking) p.vx = 0;
+    s.camera = clamp(p.x - 390, 0, s.worldWidth - WIDTH);
+  }
+
+  updateOffice(dt) {
+    const s = this.state, office = s.office, p = s.player;
+    const totalDistance = office.coffee.x - 165;
+    office.distance = Math.max(office.distance, clamp(p.x - 165, 0, totalDistance));
+    office.progress = office.distance / totalDistance;
+    const slot = office.spawnIndex;
+    if (!office.telegraph && office.forms.length === 0 && slot < OFFICE_FORM_SLOTS.length && office.distance >= OFFICE_FORM_SLOTS[slot]) {
+      office.telegraph = {
+        id: `form-${slot + 1}`, x: p.x + 750, y: OFFICE_FORM_HEIGHTS[slot],
+        origin: OFFICE_FORM_ORIGINS[slot % OFFICE_FORM_ORIGINS.length],
+        until: s.elapsed + RULES.officeWarningSeconds,
+      };
+      office.spawnIndex += 1;
+    }
+    if (office.telegraph && s.elapsed >= office.telegraph.until) {
+      const cue = office.telegraph;
+      office.forms.push({ id: cue.id, x: cue.x, y: cue.y, w: 44, h: 56, vx: -175, vy: 0, origin: cue.origin, angle: -0.12, active: true });
+      office.telegraph = null;
+    }
+    const bodyHeight = p.ducking ? 52 : 96;
+    const playerRect = { x: p.x - 18, y: p.y - bodyHeight, w: 36, h: bodyHeight };
+    for (const form of office.forms) {
+      if (!form.active) continue;
+      form.x += form.vx * dt;
+      form.y += (form.vy || 0) * dt;
+      form.angle = Math.sin(s.elapsed * 4 + Number(form.id.replace('form-', ''))) * 0.13;
+      if (form.x < -80 || form.x < s.camera - 100) { form.active = false; continue; }
+      if (!rectanglesOverlap(playerRect, { x: form.x - form.w / 2, y: form.y - form.h / 2, w: form.w, h: form.h })) continue;
+      // A form disappears on contact even during immunity, so it cannot cause
+      // a deferred second hit when the brief recovery window ends.
+      form.active = false;
+      const outcome = officeHitOutcome(office.hits, s.elapsed, office.invulnerableUntil);
+      office.hits = outcome.hits;
+      office.invulnerableUntil = outcome.invulnerableUntil;
+      if (outcome.damaged) {
+        this.burst(p.x, p.y - 65, '#ed9476');
+        this.message(`${office.hits}/3 · Formulário de ${form.origin}! Desvie dos próximos.`, 'error');
+        if (outcome.failed) {
+          office.forms = office.forms.filter(f => f.active);
+          this.end(false, 'Três formulários alcançaram Leonardo antes do café. Hora de tentar outro caminho até a copa!');
+          return;
+        }
+      }
+    }
+    office.forms = office.forms.filter(form => form.active);
+  }
+
   updatePhysics(dt) {
+    if (this.state.stageId === 'pspo') { this.updateOfficePhysics(dt); return; }
     const s = this.state;
     const p = s.player;
     const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
@@ -349,6 +486,10 @@ export class Game {
       }
     }
     this.updatePhysics(physicsDt);
+    if (s.stageId === 'pspo') {
+      this.updateOffice(physicsDt);
+      if (s.mode === 'ended') return;
+    }
     if (s.stageId === 'sms') {
       for (const worker of s.workers) {
         const visible = worker.x >= s.camera + 35 && worker.x <= s.camera + WIDTH - 35;
@@ -379,7 +520,7 @@ export class Game {
     this.keys.clear();
     this.jumpQueued = false;
     this.emit();
-    this.callbacks.onEnd?.({ success, stageId: s.stageId, score: s.score, correct: s.correct, elapsed: s.elapsed, reason });
+    this.callbacks.onEnd?.({ success, stageId: s.stageId, score: s.score, correct: s.correct, elapsed: s.elapsed, reason, ...(s.office ? { hits: s.office.hits, distance: s.office.distance } : {}) });
   }
 
   emit() { if (this.state) this.callbacks.onUpdate?.(this.state); }

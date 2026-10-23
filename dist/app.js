@@ -2,21 +2,21 @@ import { Game } from './engine.js';
 import { drawGame, drawPortrait } from './renderer.js';
 
 const $ = id => document.getElementById(id);
-const sequence = ['sms', 'ieei', 'preop'];
+const sequence = ['sms', 'ieei', 'pspo', 'preop'];
 const STORAGE = 'buzios-nightmare-v1';
 const levels = {
   sms: { number: '01', department: 'SMS', title: 'Olho no desvio', person: 'Jaqueline', role: 'Segurança, Meio Ambiente e Saúde', short: 'Um olhar atento faz toda a diferença.', color: '#b6d477', objective: 'Registre 5 desvios', goal: 5, story: 'Jaqueline chegou ao convés. Alguns trabalhadores estão sem EPI, mas se ajeitam assim que percebem sua presença. Observe rápido e registre apenas desvios reais na prancheta de auditoria comportamental.', rules: ['Caminhe com as setas e clique nos trabalhadores com desvio.', 'Você tem 2 segundos antes que cada trabalhador corrija o EPI.', 'Registre 5 desvios. Cada acerto vale +1; falso registro vale −1. Placar negativo encerra a tentativa.'], meta: 'Sem limite geral de tempo · As oportunidades de observação são únicas por tentativa.' },
   ieei: { number: '02', department: 'IEEI', title: 'Ferrugem, aqui não!', person: 'José Roberto', role: 'Integração de Equipamentos Estáticos e Inspeção', short: 'A corrosão não tira folga. Você também não.', color: '#efc775', objective: 'Recupere 3 pontos', goal: 3, story: 'A maresia não deu trégua à P-83. José Roberto tem um minuto para encontrar e recuperar três pontos de corrosão espalhados pelo convés. Cada tratamento precisa acontecer na ordem certa.', rules: ['Aproxime-se do ponto enferrujado e clique nele.', 'Escolha: jato d’água → escova → neutralizador → pintura.', 'Segure e arraste sobre a área central até completar cada etapa. Recupere os 3 pontos em menos de 60 segundos.'], meta: '60 segundos · O cronômetro continua durante o tratamento. Sequência simplificada exclusivamente para a dinâmica do jogo.' },
   ied: { number: '03', department: 'IED', title: 'Máquinas em movimento', short: 'Integração de Equipamentos Dinâmicos', color: '#c7d4c4', future: true },
-  pspo: { number: '04', department: 'PSPO', title: 'Tudo no planejamento', short: 'Planejamento e Suporte para Operação', color: '#d5d3bb', future: true },
-  preop: { number: '05', department: 'Pré-Op / P-83', title: 'Prontos para a TAP', person: 'Equipe P-83', role: 'Pré-operação da P-83 · Fase proposta', short: 'Preparar. Verificar. Aprovar.', color: '#c2b9d9', objective: 'Prepare 3 sistemas', goal: 3, story: 'O próximo marco da P-83 está chegando. Percorra o convés e ajude a equipe a preparar os sistemas de óleo, gás e água para a TAP. Esta terceira missão é uma proposta para a demonstração.', rules: ['Caminhe até os sistemas destacados e clique para abrir a missão.', 'Siga: prontidão CCM → verificação em campo → documentação e aprovação.', 'Conclua os 3 sistemas em menos de 75 segundos. Cada escolha fora de ordem custa 5 segundos.'], meta: '75 segundos · Proposta de roteiro · Marco final: TAP aprovada (FIC concluída). Interação lúdica simplificada.' }
+  pspo: { number: '04', department: 'PSPO', title: 'Só mais um cafezinho', person: 'Leonardo', role: 'Planejamento e Suporte para Operação', short: 'Entre você e o café: uma chuva de forms.', color: '#84bbc3', objective: 'Chegue à copa e pegue o café', goal: 1, story: '12º andar, Torre B do EDISEN. Leonardo só queria uma pausa, mas os formulários de viagens internacionais do IED, IEEI, SMS e Pré-Op/P-83 não param de chegar! Saia da baia, atravesse o escritório e conquiste aquele café.', rules: ['Corra com ← → e pule as mesas com espaço ou ↑.', 'Desvie dos formulários voadores. Use ↓ para se abaixar; o terceiro impacto encerra a tentativa.', 'Chegue à copa e pressione E ou clique na máquina automática para pegar o café.'], meta: '3 impactos e acabou · Sem limite de tempo · Cenário cartunesco inspirado em referências públicas do EDISEN; disposição interna fictícia.' },
+  preop: { number: '05', department: 'Pré-Op / P-83', title: 'Prontos para a TAP', person: 'Equipe P-83', role: 'Pré-operação da P-83 · Fase proposta', short: 'Preparar. Verificar. Aprovar.', color: '#c2b9d9', objective: 'Prepare 3 sistemas', goal: 3, story: 'O próximo marco da P-83 está chegando. Percorra o convés e ajude a equipe a preparar os sistemas de óleo, gás e água para a TAP. Esta missão é uma proposta para a demonstração.', rules: ['Caminhe até os sistemas destacados e clique para abrir a missão.', 'Siga: prontidão CCM → verificação em campo → documentação e aprovação.', 'Conclua os 3 sistemas em menos de 75 segundos. Cada escolha fora de ordem custa 5 segundos.'], meta: '75 segundos · Proposta de roteiro · Marco final: TAP aprovada (FIC concluída). Interação lúdica simplificada.' }
 };
 let save = { completed: [], best: {} };
 try { const parsed = JSON.parse(localStorage.getItem(STORAGE)); if (parsed && Array.isArray(parsed.completed)) save = { completed: parsed.completed.filter(x => sequence.includes(x)), best: parsed.best || {} }; } catch { /* Storage may be unavailable in private mode. */ }
 let mode = 'campaign', activeStage = null, game = null, selectedStage = null, result = null, pauseCause = null, lastFeedback = '', audio = null, soundEnabled = false;
 const persist = () => { try { localStorage.setItem(STORAGE, JSON.stringify(save)); } catch { /* Gameplay works without persistence. */ } };
 const nextCampaign = () => sequence.find(id => !save.completed.includes(id)) || 'sms';
-const unlocked = id => mode === 'free' || sequence.indexOf(id) === 0 || sequence.slice(0, sequence.indexOf(id)).every(x => save.completed.includes(x));
+const unlocked = id => mode === 'free' || save.completed.includes(id) || sequence.indexOf(id) === 0 || sequence.slice(0, sequence.indexOf(id)).every(x => save.completed.includes(x));
 const modalOpen = () => [...document.querySelectorAll('dialog')].some(d => d.open);
 function showDialog(id) { const dialog = $(id); if (!dialog.open) dialog.showModal(); }
 function closeAll() { for (const d of document.querySelectorAll('dialog')) if (d.open) d.close(); }
@@ -37,7 +37,7 @@ function cardDrawing(id) {
   sms: `${base}<path d="M95 117V83q0-20 24-22 25 1 28 22v34" fill="#eea459"/><path d="M101 100h39M110 84v34M133 83v35" stroke="#f8e7a3" stroke-width="7"/><path d="M107 67q-20-30 4-45 30-9 36 19l-6 31z" fill="#765746"/><ellipse cx="124" cy="52" rx="22" ry="25" fill="#efbc83"/><path d="M98 44q2-29 28-29 26 1 26 29z" fill="#f6d36b"/><path d="M121 16v22M94 44h63" fill="none"/><circle cx="116" cy="54" r="2" fill="#294b3d"/><circle cx="132" cy="54" r="2" fill="#294b3d"/><path d="M118 65q8 6 14-1" fill="none"/><rect x="144" y="72" width="32" height="40" rx="4" fill="#fff3c8" transform="rotate(10 160 92)"/><path d="M154 80h14M153 89l4 4 7-9M154 100h13" fill="none"/><path d="M83 78l-9-8M78 89H66M84 98l-9 6" stroke="#6e903c"/>${end}`,
   ieei: `${base}<path d="M22 72h147v34H22" fill="#afc8b5"/><path d="M37 64v50M51 64v50M150 64v50" stroke="#73967f" stroke-width="9"/><path d="M78 70l13-8 13 12 15-3 7 20-17 15-19-5-16 5-6-20z" fill="#b8683e"/><path d="M132 57l32-34 16 15-37 33" fill="#a47a50"/><path d="M117 69l15-22 23 21-18 18z" fill="#e9d7a0"/><path d="M121 66l21 14M128 59l20 14" fill="none"/><path d="M102 47l2-13M89 49l-9-9M165 89l12 1" stroke="#c28d3e"/><circle cx="61" cy="34" r="12" fill="#f6de95"/><path d="M57 34l3 3 6-7" fill="none"/>${end}`,
   ied: `${base}<path d="M34 94h133v14H34z" fill="#7b9f91"/><rect x="52" y="50" width="94" height="44" rx="10" fill="#b1c5b4"/><path d="M66 54v35M78 54v35M90 54v35M102 54v35M114 54v35" stroke="#789784"/><circle cx="148" cy="72" r="27" fill="#d7dfc9"/><circle cx="148" cy="72" r="13" fill="#829d8c"/><path d="M30 66h23v18H30M74 50V33h47v17" fill="#c4d2bb"/><path d="M154 27l5-10M169 36l11-4" fill="none"/>${end}`,
-  pspo: `${base}<rect x="63" y="24" width="87" height="86" rx="7" fill="#f1edd3"/><path d="M63 45h87"/><path d="M82 17v14M131 17v14" stroke-width="6"/><path d="M77 60l5 5 8-10M77 80l5 5 8-10M103 60h29M103 80h20M77 97h54" fill="none"/><circle cx="160" cy="88" r="24" fill="#b5c5a7"/><path d="M160 73v17l10 5" fill="none"/>${end}`,
+  pspo: `${base}<g transform="rotate(-17 65 58)"><path d="M38 28h39l12 12v53H38z" fill="#fff6d8"/><path d="M77 28v14h12M48 50h30M48 60h23M48 70h25" fill="none"/><text x="61" y="85" text-anchor="middle" font-size="10" fill="#2b544b" stroke="none" font-family="sans-serif" font-weight="bold">FORM</text></g><path d="M109 58h55v33q0 16-27 16t-28-16z" fill="#f1eed5"/><path d="M164 65h10q15 16-10 24" fill="none" stroke-width="6"/><ellipse cx="137" cy="58" rx="27" ry="7" fill="#916447"/><path d="M128 43q-11-10 1-19M146 43q-11-10 1-19" fill="none" stroke="#fff4d4" stroke-width="5"/><path d="M101 108h73M25 45H10M25 57H5" stroke="#417b7c"/>${end}`,
   preop: `${base}<path d="M40 113V50h91v63" fill="#b2c7b5"/><path d="M54 50V28h63v22" fill="#e1e4ce"/><rect x="53" y="61" width="64" height="38" rx="4" fill="#31594d"/><path d="M62 88l10-12 8 7 12-15 17 12" fill="none" stroke="#c2db81"/><circle cx="152" cy="78" r="32" fill="#c2d77e"/><path d="M136 77l12 13 23-28" fill="none" stroke-width="7"/><path d="M156 26v12M177 33l-7 10" stroke="#8d7fa0"/>${end}`
  };
  return `<svg viewBox="0 0 220 120" aria-hidden="true">${illustrations[id]}</svg>`;
@@ -45,8 +45,8 @@ function cardDrawing(id) {
 function renderMenu() {
  $('mode-campaign').setAttribute('aria-pressed', mode === 'campaign');
  $('mode-free').setAttribute('aria-pressed', mode === 'free');
- $('mode-description').textContent = mode === 'free' ? 'Seu convés, suas regras. Jogue qualquer uma das três missões disponíveis, na ordem que quiser.' : 'Uma missão de cada vez. Conclua SMS para desbloquear IEEI e depois Pré-Op/P-83.';
- $('campaign-start').innerHTML = `${save.completed.length && save.completed.length < 3 ? 'Continuar campanha' : 'Iniciar campanha'} <span>➜</span>`;
+ $('mode-description').textContent = mode === 'free' ? 'Do convés ao escritório. Jogue qualquer uma das quatro missões disponíveis, na ordem que quiser.' : 'Uma missão de cada vez: SMS → IEEI → PSPO → Pré-Op/P-83.';
+ $('campaign-start').innerHTML = `${save.completed.length && save.completed.length < sequence.length ? 'Continuar campanha' : 'Iniciar campanha'} <span>➜</span>`;
  $('mission-grid').innerHTML = Object.entries(levels).map(([id, l]) => {
   const lock = !l.future && !unlocked(id), done = save.completed.includes(id);
   return `<button class="mission-card ${l.future ? 'future' : lock ? 'locked' : ''}" data-stage="${id}" style="--card-color:${l.color}" ${l.future || lock ? 'disabled' : ''} aria-label="${l.department}: ${l.future ? 'em breve' : lock ? 'bloqueada na campanha' : l.title}"><div class="card-art"><span class="card-number">${l.number}</span><span class="card-status">${l.future ? 'EM BREVE' : done ? '✓ CONCLUÍDA' : lock ? 'BLOQUEADA' : id === 'preop' ? 'PROPOSTA' : 'DISPONÍVEL'}</span>${cardDrawing(id)}</div><div class="card-content"><h3>${l.department}</h3><p>${l.short}</p><div class="card-bottom"><span>${l.future ? 'Próximos capítulos' : lock ? 'Avance na campanha' : l.person}</span><span>${l.future || lock ? '○' : '↗'}</span></div></div></button>`;
@@ -60,6 +60,7 @@ function brief(id) {
  $('brief-title').textContent = l.title; $('brief-person').textContent = `${l.person} · ${l.role}`;
  $('brief-story').textContent = l.story; $('brief-rules').innerHTML = l.rules.map(r => `<li>${r}</li>`).join('');
  $('brief-meta').textContent = l.meta;
+ $('brief-play').innerHTML = `${id === 'pspo' ? 'Sair da baia' : 'Entrar no convés'} <span>➜</span>`;
  const ctx = $('brief-portrait').getContext('2d'); ctx.clearRect(0,0,180,190); drawPortrait(ctx,id,180);
  showDialog('brief-dialog');
 }
@@ -68,7 +69,15 @@ function start(id) {
  $('home-screen').hidden = true; $('game-screen').hidden = false; document.body.classList.add('in-game');
  const l = levels[id]; $('game-department').textContent = `${l.department} / ${mode === 'campaign' ? 'CAMPANHA' : 'LIVRE'}`; $('game-title').textContent = l.title;
  $('hud-person').textContent = l.person.toUpperCase(); $('hud-objective').textContent = l.objective;
- $('metric-label').textContent = id === 'sms' ? 'PLACAR' : 'TEMPO';
+ $('metric-label').textContent = id === 'sms' ? 'PLACAR' : id === 'pspo' ? 'ATÉ A COPA' : 'TEMPO';
+ $('office-route').hidden = id !== 'pspo';
+ $('coffee-touch').hidden = id !== 'pspo';
+ document.querySelector('[data-key="ArrowUp"]').setAttribute('aria-label', id === 'pspo' ? 'Pular' : 'Subir');
+ document.querySelector('[data-key="ArrowDown"]').setAttribute('aria-label', id === 'pspo' ? 'Abaixar' : 'Descer');
+ $('game-screen').classList.toggle('office-game', id === 'pspo');
+ $('game-canvas').setAttribute('aria-label', id === 'pspo' ? 'Escritório do EDISEN. Setas para correr, espaço para pular mesas, seta para baixo para abaixar e E ou clique na máquina para pegar café. Evite o terceiro formulário.' : 'Área de jogo. Setas para caminhar e subir escadas, espaço para pular e mouse para interagir.');
+ $('control-legend').innerHTML = id === 'pspo' ? '<span><kbd>←</kbd><kbd>→</kbd> correr</span><span><kbd>espaço</kbd><kbd>↑</kbd> pular</span><span><kbd>↓</kbd> abaixar</span><span><kbd>E</kbd> ou clique · café</span>' : '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span>◉ clicar para interagir</span>';
+ $('game-footnote').textContent = id === 'pspo' ? 'EDISEN · Torre B · 12º andar — interpretação cartunesca; disposição interna fictícia.' : 'Uma aventura fictícia na P-83. As interações são simplificações para o jogo.';
  $('audit-panel').hidden = id !== 'sms'; $('audit-panel').open = false;
  if (!game) game = new Game($('game-canvas'), { onUpdate: update, onEnd: end, onInteraction: interaction });
  game.start(id); $('game-canvas').focus(); window.scrollTo(0,0);
@@ -82,11 +91,21 @@ function update(s) {
  if (!s || !activeStage) return;
  const l = levels[s.stageId];
  if (s.stageId === 'sms') $('audit-list').innerHTML = s.auditLog.length ? s.auditLog.map((entry,i) => `<li>Registro ${i+1} · ${entry.label} · ${entry.time.toFixed(1)}s</li>`).join('') : '<li class="empty-record">Nenhum desvio registrado. Observe os EPIs no convés.</li>';
- $('goal-counter').textContent = `${s.correct} / ${l.goal}`;
- $('goal-dots').innerHTML = Array.from({length:l.goal},(_,i) => `<span class="goal-dot ${i < s.correct ? 'done' : ''}">${i < s.correct ? '✓' : ''}</span>`).join('');
- $('metric-value').textContent = s.timeLeft === null ? s.score : `${Math.ceil(s.timeLeft)}s`;
- $('metric-value').parentElement.classList.toggle('danger', s.timeLeft !== null && s.timeLeft <= 15);
- const feedback = s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
+ if (s.stageId === 'pspo') {
+  const o = s.office, percent = Math.min(100, Math.round(o.progress * 100));
+  $('goal-counter').textContent = `${o.hits} / 3 impactos`;
+  $('goal-dots').innerHTML = Array.from({length:3},(_,i) => `<span class="life-heart ${i >= 3-o.hits ? 'lost' : ''}" aria-hidden="true">♥</span>`).join('');
+  $('metric-value').textContent = `${percent}%`;
+  $('metric-value').parentElement.classList.toggle('danger', o.hits >= 2);
+  $('office-route-fill').style.width = `${percent}%`;
+  $('office-route-track').setAttribute('aria-valuenow', percent);
+ } else {
+  $('goal-counter').textContent = `${s.correct} / ${l.goal}`;
+  $('goal-dots').innerHTML = Array.from({length:l.goal},(_,i) => `<span class="goal-dot ${i < s.correct ? 'done' : ''}">${i < s.correct ? '✓' : ''}</span>`).join('');
+  $('metric-value').textContent = s.timeLeft === null ? s.score : `${Math.ceil(s.timeLeft)}s`;
+  $('metric-value').parentElement.classList.toggle('danger', s.timeLeft !== null && s.timeLeft <= 15);
+ }
+ const feedback = s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : s.stageId === 'pspo' ? 'O café está no fim do corredor. Pule as mesas e desvie dos forms!' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
  $('game-feedback').textContent = feedback; $('game-feedback').dataset.tone = s.feedback.until >= s.elapsed ? s.feedback.tone : 'info';
  if (feedback !== lastFeedback) { if (s.feedback.until >= s.elapsed) { if (s.feedback.tone === 'success') beep(600); if (s.feedback.tone === 'error') beep(180); } lastFeedback = feedback; }
  if (s.mode === 'paused' && pauseCause !== 'help' && !$('pause-dialog').open) showDialog('pause-dialog');
@@ -102,9 +121,9 @@ function end(outcome) {
  const campaignDone = outcome.success && mode === 'campaign' && sequence.every(id => save.completed.includes(id));
  $('result-medal').textContent = outcome.success ? '★' : '↻';
  $('result-eyebrow').textContent = outcome.success ? campaignDone ? 'CAMPANHA CONCLUÍDA' : 'MISSÃO CUMPRIDA' : 'NOVA TENTATIVA';
- $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : 'Boa, equipe!' : 'Vamos de novo?';
- $('result-message').textContent = campaignDone ? 'SMS, integridade e pré-operação: as três missões foram concluídas. IED e PSPO ficam para os próximos capítulos.' : outcome.reason;
- $('result-stats').innerHTML = `<span><strong>${outcome.correct} / ${l.goal}</strong>${outcome.stageId === 'sms' ? 'registros' : 'concluídos'}</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de missão</span>`;
+ $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : outcome.stageId === 'pspo' ? 'Café conquistado!' : 'Boa, equipe!' : outcome.stageId === 'pspo' ? 'Papelada demais!' : 'Vamos de novo?';
+ $('result-message').textContent = campaignDone ? 'SMS, integridade, planejamento e pré-operação: as quatro missões foram concluídas. IED fica para o próximo capítulo.' : outcome.reason;
+ $('result-stats').innerHTML = outcome.stageId === 'pspo' ? `<span><strong>${game.getSnapshot().office.hits} / 3</strong>impactos</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de corrida</span>` : `<span><strong>${outcome.correct} / ${l.goal}</strong>${outcome.stageId === 'sms' ? 'registros' : 'concluídos'}</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de missão</span>`;
  $('result-next').innerHTML = `${!outcome.success ? 'Recomeçar fase' : mode === 'campaign' && !campaignDone ? 'Próxima missão' : 'Jogar novamente'} <span>${outcome.success ? '➜' : '↻'}</span>`;
  showDialog('result-dialog');
 }

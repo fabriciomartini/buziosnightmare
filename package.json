@@ -1,1 +1,12 @@
-{"name":"buziosnightmare","version":"1.0.0","private":true,"type":"module","description":"Jogo de plataforma IPO/Búzios, executado inteiramente no navegador.","scripts":{"test":"node --test tests/*.test.mjs","check":"node --check dist/app.js && node --check dist/engine.js && node --check dist/renderer.js && node --check dist/rules.js","start":"python3 -m http.server 8080 --directory dist"}}
+{
+  "name": "buziosnightmare",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Jogo de plataforma IPO/Búzios, executado inteiramente no navegador.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check dist/app.js && node --check dist/engine.js && node --check dist/renderer.js && node --check dist/rules.js && node --check dist/office-renderer.js",
+    "start": "python3 -m http.server 8080 --directory dist"
+  }
+}

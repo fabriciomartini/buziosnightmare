@@ -21,12 +21,37 @@ const OFFICE_DESKS = [
   { x: 3320, y: 425, w: 130, h: 75 },
   { x: 3980, y: 435, w: 115, h: 65 },
   { x: 4580, y: 430, w: 120, h: 70 },
+  { x: 5260, y: 430, w: 125, h: 70 },
+  { x: 5900, y: 425, w: 130, h: 75 },
 ];
-// Each distance slot launches one form, with advance warning and no random bursts.
-// Stopping between desks remains a valid strategy for reading and avoiding it.
-const OFFICE_FORM_SLOTS = [180, 820, 1460, 2100, 2740, 3380, 4020, 4660];
-const OFFICE_FORM_HEIGHTS = [450, 375, 420, 450, 375, 420, 450, 420];
 const OFFICE_FORM_ORIGINS = ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'];
+// A finite encounter script gives each special exactly one slot per attempt.
+// Slots advance when announced, and never re-arm after a hit, dodge or backtrack.
+const OFFICE_ENCOUNTERS = [
+  { distance: 180, kind: 'normal', y: 450 },
+  { distance: 820, kind: 'normal', y: 375 },
+  { distance: 1460, kind: 'normal', y: 420 },
+  { distance: 2100, kind: 'return', y: 414 },
+  { distance: 2740, kind: 'normal', y: 450 },
+  { distance: 3380, kind: 'normal', y: 375 },
+  { distance: 4020, kind: 'normal', y: 420 },
+  { distance: 4660, kind: 'urgent', y: 455 },
+  { distance: 5220, kind: 'normal', y: 450 },
+  { distance: 5660, kind: 'normal', y: 420 },
+].map((encounter, index, encounters) => {
+  const normalIndex = encounters.slice(0, index + 1).filter(item => item.kind === 'normal').length - 1;
+  const special = encounter.kind !== 'normal';
+  return {
+    ...encounter, sequence: index,
+    id: special ? `${encounter.kind}-1` : `form-${normalIndex + 1}`,
+    label: encounter.kind === 'return' ? 'Remarcação de retorno' : encounter.kind === 'urgent' ? 'Urgente' : 'Formulário de viagem',
+    origin: special ? null : OFFICE_FORM_ORIGINS[normalIndex % OFFICE_FORM_ORIGINS.length],
+    spawnDistance: encounter.kind === 'return' ? 330 : encounter.kind === 'urgent' ? 300 : 750,
+    warningDuration: special ? 0.65 : RULES.officeWarningSeconds,
+    vx: encounter.kind === 'return' ? -240 : encounter.kind === 'urgent' ? -280 : -175,
+    w: special ? 54 : 44, h: special ? 64 : 56,
+  };
+});
 const DYNAMIC_LABELS = ['Motor e bomba', 'Compressor', 'Grande conjunto final'];
 
 function makeDynamic() {
@@ -72,7 +97,7 @@ function freshState(stageId) {
     stageLabel: config.label,
     objective: config.objective,
     mode: 'playing',
-    worldWidth: stageId === 'pspo' ? 5600 : 3400,
+    worldWidth: stageId === 'pspo' ? 6600 : 3400,
     camera: 0,
     elapsed: 0,
     player: { x: 165, y: GROUND, vx: 0, vy: 0, facing: 1, walking: false, grounded: true, climbing: false, ducking: false },
@@ -86,8 +111,8 @@ function freshState(stageId) {
     dynamic: stageId === 'ied' ? makeDynamic() : null,
     office: stageId === 'pspo' ? {
       hits: 0, maxHits: RULES.officeMaxHits, invulnerableUntil: 0, progress: 0,
-      forms: [], coffee: { x: 5370, y: 430, collected: false }, distance: 0,
-      deskCount: OFFICE_DESKS.length, spawnIndex: 0, telegraph: null,
+      forms: [], coffee: { x: 6370, y: 430, collected: false }, distance: 0,
+      deskCount: OFFICE_DESKS.length, spawnIndex: 0, telegraph: null, spawnHistory: [],
     } : null,
     workers: stageId === 'sms' ? makeWorkers() : [],
     rust: stageId === 'ieei' ? [
@@ -573,18 +598,26 @@ export class Game {
     const totalDistance = office.coffee.x - 165;
     office.distance = Math.max(office.distance, clamp(p.x - 165, 0, totalDistance));
     office.progress = office.distance / totalDistance;
-    const slot = office.spawnIndex;
-    if (!office.telegraph && office.forms.length === 0 && slot < OFFICE_FORM_SLOTS.length && office.distance >= OFFICE_FORM_SLOTS[slot]) {
+    const encounter = OFFICE_ENCOUNTERS[office.spawnIndex];
+    // A near-range special is announced over clear corridor, away from a
+    // mandatory furniture jump. Do not require grounded feet: repeated hopping
+    // must not postpone the one-off encounter. Warning plus flight time still
+    // lets an already airborne player land before the form reaches them.
+    const specialFloorClear = !s.platforms.some(desk => desk.x < p.x + 350 && desk.x + desk.w > p.x - 55);
+    if (!office.telegraph && office.forms.length === 0 && encounter && office.distance >= encounter.distance && (encounter.kind === 'normal' || specialFloorClear)) {
       office.telegraph = {
-        id: `form-${slot + 1}`, x: p.x + 750, y: OFFICE_FORM_HEIGHTS[slot],
-        origin: OFFICE_FORM_ORIGINS[slot % OFFICE_FORM_ORIGINS.length],
-        until: s.elapsed + RULES.officeWarningSeconds,
+        ...encounter, x: p.x + encounter.spawnDistance,
+        startedAt: s.elapsed, until: s.elapsed + encounter.warningDuration,
       };
       office.spawnIndex += 1;
+      if (encounter.kind !== 'normal') this.message(`Atenção: ${encounter.label}! Um formulário especial está chegando.`, 'error', 1.4);
     }
+    if (office.telegraph) office.telegraph.x = p.x + office.telegraph.spawnDistance;
     if (office.telegraph && s.elapsed >= office.telegraph.until) {
       const cue = office.telegraph;
-      office.forms.push({ id: cue.id, x: cue.x, y: cue.y, w: 44, h: 56, vx: -175, vy: 0, origin: cue.origin, angle: -0.12, active: true });
+      const form = { ...cue, x: p.x + cue.spawnDistance, vy: 0, angle: -0.12, active: true, spawnedAt: s.elapsed };
+      office.forms.push(form);
+      office.spawnHistory.push({ id: form.id, kind: form.kind, label: form.label, startedAt: cue.startedAt, spawnedAt: s.elapsed, x: form.x, playerX: p.x, spawnDistance: form.spawnDistance, warningDuration: form.warningDuration, vx: form.vx });
       office.telegraph = null;
     }
     const bodyHeight = p.ducking ? 52 : 96;
@@ -593,8 +626,8 @@ export class Game {
       if (!form.active) continue;
       form.x += form.vx * dt;
       form.y += (form.vy || 0) * dt;
-      form.angle = Math.sin(s.elapsed * 4 + Number(form.id.replace('form-', ''))) * 0.13;
-      if (form.x < -80 || form.x < s.camera - 100) { form.active = false; continue; }
+      form.angle = Math.sin(s.elapsed * 4 + (form.sequence ?? Number(form.id.match(/\d+/)?.[0] || 0))) * 0.13;
+      if (form.x < -80 || form.x < p.x - 80) { form.active = false; continue; }
       if (!rectanglesOverlap(playerRect, { x: form.x - form.w / 2, y: form.y - form.h / 2, w: form.w, h: form.h })) continue;
       // A form disappears on contact even during immunity, so it cannot cause
       // a deferred second hit when the brief recovery window ends.
@@ -604,7 +637,8 @@ export class Game {
       office.invulnerableUntil = outcome.invulnerableUntil;
       if (outcome.damaged) {
         this.burst(p.x, p.y - 65, '#ed9476');
-        this.message(`${office.hits}/3 · Formulário de ${form.origin}! Desvie dos próximos.`, 'error');
+        const label = form.kind && form.kind !== 'normal' ? form.label : `Formulário de ${form.origin}`;
+        this.message(`${office.hits}/3 · ${label}! Desvie dos próximos.`, 'error');
         if (outcome.failed) {
           office.forms = office.forms.filter(f => f.active);
           this.end(false, 'Três formulários alcançaram Leonardo antes do café. Hora de tentar outro caminho até a copa!');

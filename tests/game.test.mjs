@@ -389,8 +389,8 @@ test('PSPO: desks are solid, harmless, and traversable only after a jump', t => 
   const h = harness(t);
   h.game.start('pspo'); h.frame();
   const s = h.game.state, desk = s.platforms[0];
-  assert.equal(s.worldWidth, 5600);
-  assert.equal(s.platforms.length, 7);
+  assert.equal(s.worldWidth, 6600);
+  assert.equal(s.platforms.length, 9);
   assert.equal(s.ladders.length, 0);
   assert.equal(s.timeLeft, null);
   s.player.x = desk.x - 40;
@@ -504,46 +504,184 @@ test('PSPO: spawn cues are deterministic, pause freezes the office, and restart 
   assert.equal(h.game.state.workers.length, 19);
 });
 
-test('PSPO: the full corridor is beatable using only normal movement, jumps, ducking and coffee control', t => {
-  const h = harness(t);
-  h.game.start('pspo');
+function playOfficeRoute(h, { collect = true, specialReactionDelay = 0.2, rush = false, stopAtSpecial = null } = {}) {
   const s = h.game.state;
   const origins = new Set();
   const crossed = new Set();
+  const cues = new Map();
   let jumps = 0;
   // This route controller reads the same desk and projectile positions visible
   // to a player. It never teleports, removes forms, changes lives or grants immunity.
   for (let frame = 0; frame < 18000 && s.mode === 'playing'; frame++) {
     const p = s.player, office = s.office;
     let right = true, duck = false, jump = false;
-    if (office.telegraph) { right = false; origins.add(office.telegraph.origin); }
+    if (office.telegraph) {
+      const cue = office.telegraph;
+      cues.set(cue.id, { kind: cue.kind, startedAt: cue.startedAt, until: cue.until });
+      // Simulate a human continuing the prior movement for 200ms after the
+      // special announcement; the controller cannot react instantly to it.
+      right = rush || (cue.kind !== 'normal' && s.elapsed - cue.startedAt < specialReactionDelay);
+      if (cue.origin) origins.add(cue.origin);
+    }
     const incoming = office.forms.find(form => form.active && form.x > p.x - 65);
     if (incoming) {
-      origins.add(incoming.origin);
+      if (incoming.origin) origins.add(incoming.origin);
       const dx = incoming.x - p.x;
       if (incoming.y >= 440) {
-        right = !p.grounded || dx <= 140;
-        jump = p.grounded && dx <= 140 && dx > -40;
+        const jumpDistance = incoming.kind === 'urgent' ? 160 : 140;
+        right = !p.grounded || dx <= jumpDistance;
+        jump = p.grounded && dx <= jumpDistance && dx > -40;
       } else if (incoming.y >= 400) { right = false; duck = true; }
       else right = false;
     }
     const desk = s.platforms.find(d => d.x >= p.x && d.x - (p.x + 18) < 55);
+    if (rush) {
+      right = true; duck = false; jump = false;
+      if (incoming) {
+        const dx = incoming.x - p.x;
+        // Keep running until a form or a desk actually requires a response.
+        // Before a desk, avoid committing to a jump underneath a high form.
+        if (desk && dx < 800 && p.grounded && p.y >= 495) right = false;
+        if (incoming.y >= 440 && dx < 180) {
+          const leapAt = incoming.kind === 'urgent' ? 160 : 150;
+          if (p.grounded && dx <= leapAt) { jump = true; right = true; }
+          else if (p.grounded) right = false;
+        } else if (incoming.y >= 400 && dx < 260) {
+          if (p.y >= 495) { duck = true; right = !desk; }
+          else if (p.grounded) jump = true;
+        } else if (incoming.y < 400 && dx < 260 && p.y < 495 && p.grounded) jump = true;
+      }
+    }
     if (right && desk && p.grounded) jump = true;
     h.game.setControl('ArrowRight', right);
     h.game.setControl('ArrowDown', duck && !jump);
     if (jump) { h.game.setControl('Space', true); jumps++; }
     h.game.update(1 / 120);
     h.game.setControl('Space', false);
+    if (office.telegraph?.kind === stopAtSpecial) {
+      h.game.setControl('ArrowRight', false); h.game.setControl('ArrowDown', false);
+      break;
+    }
     for (const [index, desk] of s.platforms.entries()) if (p.x > desk.x + desk.w) crossed.add(index);
-    if (p.x >= office.coffee.x - 110) h.game.setControl('KeyE', true);
+    if (p.x >= office.coffee.x - 110) {
+      if (collect) h.game.setControl('KeyE', true);
+      else { h.game.setControl('ArrowRight', false); break; }
+    }
   }
+  return { origins, crossed, cues, jumps };
+}
+
+test('PSPO: the longer corridor and all ten forms are beatable with normal controls and 200ms special-reaction delay', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  const { origins, crossed, cues, jumps } = playOfficeRoute(h);
   assert.equal(s.mode, 'ended', 'the route reaches a terminal state');
   assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason || `stuck at ${s.player.x}`);
   assert.equal(s.office.hits, 0, 'each form pattern has a safe response');
-  assert.equal(crossed.size, 7, 'all seven solid desks were crossed');
-  assert.ok(jumps >= 7);
+  assert.equal(crossed.size, 9, 'all nine solid desks were crossed');
+  assert.ok(jumps >= 9);
   assert.deepEqual([...origins].sort(), ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'].sort());
   assert.equal(s.office.coffee.collected, true);
+  assert.equal(s.office.spawnHistory.length, 10);
+  assert.equal(s.office.spawnHistory.filter(form => form.kind === 'normal').length, 8);
+  for (const kind of ['return', 'urgent']) {
+    const encounters = s.office.spawnHistory.filter(form => form.kind === kind);
+    assert.equal(encounters.length, 1, `${kind} launches exactly once`);
+    const form = encounters[0];
+    assert.ok(cues.has(form.id));
+    assert.ok(form.spawnedAt - form.startedAt >= form.warningDuration - 1e-8);
+    assert.ok(form.playerX < s.office.coffee.x - 550, 'special launches well before the coffee machine');
+  }
+});
+
+test('PSPO: a fast controls-only route still encounters both unique specials before coffee', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  playOfficeRoute(h, { rush: true });
+  assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason || `stuck at ${s.player.x}`);
+  for (const kind of ['return', 'urgent']) {
+    const forms = s.office.spawnHistory.filter(form => form.kind === kind);
+    assert.equal(forms.length, 1);
+    assert.ok(forms[0].playerX < s.office.coffee.x - 550);
+  }
+  assert.equal(s.office.spawnHistory.length, 10);
+});
+
+test('PSPO: backtracking across the special encounter locations never re-arms either form', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  playOfficeRoute(h, { collect: false });
+  const s = h.game.state;
+  assert.equal(s.office.spawnHistory.length, 10);
+  const originalIds = s.office.spawnHistory.map(form => form.id);
+  h.game.setControl('ArrowRight', false); h.game.setControl('ArrowLeft', true);
+  for (let i = 0; i < 4000 && s.player.x > 1800; i++) {
+    const desk = s.platforms.find(d => d.x + d.w < s.player.x && s.player.x - 18 - (d.x + d.w) < 55);
+    if (desk && s.player.grounded) h.game.setControl('Space', true);
+    h.game.update(1 / 120); h.game.setControl('Space', false);
+  }
+  assert.ok(s.player.x <= 1800, 'actual leftward movement crosses both encounter locations');
+  h.game.setControl('ArrowLeft', false);
+  playOfficeRoute(h);
+  assert.equal(h.endings[0].success, true);
+  assert.deepEqual(s.office.spawnHistory.map(form => form.id), originalIds);
+  assert.equal(new Set(originalIds).size, 10);
+});
+
+test('PSPO: special warning pauses, launches with fresh relative distance, and resets only for a new attempt', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  playOfficeRoute(h, { stopAtSpecial: 'return' });
+  const s = h.game.state, cue = s.office.telegraph;
+  assert.equal(cue.kind, 'return');
+  assert.equal(cue.label, 'Remarcação de retorno');
+  assert.equal(cue.origin, null);
+  assert.ok(cue.until > cue.startedAt);
+  const elapsed = s.elapsed, until = cue.until, count = s.office.spawnHistory.length;
+  h.game.pause(true); h.game.update(20);
+  assert.equal(s.elapsed, elapsed); assert.equal(s.office.telegraph.until, until);
+  assert.equal(s.office.spawnHistory.length, count);
+  h.game.pause(false); h.game.setControl('ArrowRight', true);
+  for (let i = 0; i < 76; i++) h.game.update(1 / 120);
+  assert.equal(s.office.spawnHistory.length, count);
+  for (let i = 0; i < 4; i++) h.game.update(1 / 120);
+  const form = s.office.spawnHistory.find(f => f.kind === 'return');
+  assert.ok(form);
+  assert.equal(form.x - form.playerX, 330, 'launch is relative to current position, not the old warning location');
+  assert.ok(form.spawnedAt - form.startedAt >= 0.65 - 1e-8);
+  const normal = s.office.spawnHistory.find(f => f.kind === 'normal');
+  assert.ok(form.spawnDistance < normal.spawnDistance);
+  assert.ok(form.warningDuration < normal.warningDuration);
+  assert.ok(form.spawnDistance / Math.abs(form.vx) < normal.spawnDistance / Math.abs(normal.vx));
+  assert.ok(Number.isFinite(s.office.forms.find(f => f.kind === 'return').angle));
+  h.game.start('pspo');
+  assert.equal(h.game.state.office.spawnHistory.length, 0);
+  assert.equal(h.game.state.office.spawnIndex, 0);
+  playOfficeRoute(h);
+  assert.equal(h.game.state.office.spawnHistory.filter(f => f.kind === 'return').length, 1);
+  assert.equal(h.game.state.office.spawnHistory.filter(f => f.kind === 'urgent').length, 1);
+});
+
+test('PSPO: specials share the existing three-hit rule and chest-height return remains duckable', t => {
+  const h = harness(t);
+  h.game.start('pspo');
+  const s = h.game.state;
+  const special = (kind, y) => ({ ...officeForm(s.player, 95, y), id: `${kind}-1`, kind, label: kind === 'return' ? 'Remarcação de retorno' : 'Urgente', origin: null, w: 54, h: 64 });
+  s.office.forms.push(special('return', 414));
+  h.game.setControl('ArrowDown', true); h.game.update(0);
+  assert.equal(s.office.hits, 0, 'return bottom446 stays above crouching top448');
+  h.game.setControl('ArrowDown', false); h.game.update(0);
+  assert.equal(s.office.hits, 1);
+  assert.match(s.feedback.text, /Remarcação de retorno/);
+  h.game.update(1.2);
+  s.office.forms.push(special('urgent', 455)); h.game.update(0);
+  assert.equal(s.office.hits, 2); assert.equal(s.mode, 'playing');
+  assert.match(s.feedback.text, /Urgente/);
+  h.game.update(1.2);
+  s.office.forms.push(officeForm(s.player, 96)); h.game.update(0);
+  assert.equal(s.office.hits, 3); assert.equal(s.mode, 'ended');
 });
 
 function finishAlignmentWithControls(h) {

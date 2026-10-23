@@ -327,34 +327,214 @@ test('controls ignore text fields, prevent scrolling, and do not move during int
   assert.equal(h.game.keys.size, 0);
 });
 
-test('Pré-Op: wrong order costs five seconds and three completed systems win', t => {
-  const h = harness(t);
-  h.game.start('preop'); h.frame();
-  const stations = h.game.state.stations;
-  h.approach(stations[0]);
-  assert.equal(h.game.chooseTap(2), false);
-  assert.equal(stations[0].step, 0);
-  assert.equal(h.game.state.timeLeft, 70);
-  for (const station of stations) {
-    if (!h.game.state.activeTarget) h.approach(station);
-    for (let step = 0; step < 3; step++) assert.equal(h.game.chooseTap(step), true);
-    assert.equal(station.step, 3);
-  }
-  assert.equal(h.game.state.correct, 3);
-  assert.equal(h.game.state.score, 300);
+function preopOpen(h, id) {
+  const s = h.game.state, mission = s.preop;
+  const target = [mission.board, ...mission.stations, ...mission.racks, ...mission.fieldPoints].find(target => target.id === id);
+  h.game.closeInteraction();
+  s.player.x = target.x; s.player.y = target.kind === 'field' ? Math.min(500, target.y + 40) : 500;
+  s.player.vy = 0; s.player.grounded = true;
+  assert.equal(h.game.interactPreop(id), true, `open ${id}`);
+  return target;
+}
+
+function preopTake(h, rack, item) { preopOpen(h, rack); assert.equal(h.game.takeEvidence(item), true); h.game.closeInteraction(); }
+function preopDeliver(h, station, item) { preopOpen(h, station); assert.equal(h.game.deliverEvidence(item), true); h.game.closeInteraction(); }
+function preopField(h) { for (const point of h.game.state.preop.fieldPoints) preopOpen(h, point.id); }
+
+test('Pré-Op: proximity and active-rack checks prevent remote collection and field shortcuts', t => {
+  const h = harness(t); h.game.start('preop'); h.frame();
+  const s = h.game.state;
+  assert.equal(s.timeLeft, 120); assert.equal(s.worldWidth, 3600);
+  assert.equal(h.game.takeEvidence('oil-tag'), false);
+  assert.equal(h.game.interactPreop('tags'), false);
+  assert.equal(h.game.recordFieldPoint('field-1'), false);
+  s.player.x = 1450; s.player.y = 500;
+  assert.equal(h.game.interactPreop('field-1'), false, 'cannot record elevated point from the deck');
+  preopOpen(h, 'tags');
+  assert.equal(h.game.takeEvidence('water-document'), false, 'the document belongs to another rack');
+  assert.equal(h.game.takeEvidence('radio-revision'), false, 'surprise evidence starts unavailable');
+  assert.equal(h.game.chooseTap(0), false, 'legacy sequence cannot bypass evidence collection');
+});
+
+test('Pré-Op: two-slot inventory preserves wrong evidence and supports returning and recollecting it', t => {
+  const h = harness(t); h.game.start('preop');
+  const mission = h.game.state.preop;
+  preopOpen(h, 'tags');
+  assert.equal(h.game.takeEvidence('oil-decoy'), true);
+  assert.equal(h.game.takeEvidence('tag-decoy'), true);
+  assert.equal(h.game.takeEvidence('oil-tag'), false);
+  assert.deepEqual(mission.inventory, ['oil-decoy', 'tag-decoy']);
+  assert.equal(h.game.takeEvidence('oil-decoy'), false, 'no duplicate collection');
+  preopOpen(h, 'oil');
+  assert.equal(h.game.deliverEvidence('oil-decoy'), false);
+  assert.equal(h.game.state.timeLeft, 115);
+  assert.deepEqual(mission.inventory, ['oil-decoy', 'tag-decoy']);
+  assert.equal(mission.stations[0].done, false);
+  assert.equal(h.game.dropEvidence('oil-decoy'), true);
+  assert.equal(mission.items.find(item => item.id === 'oil-decoy').available, true);
+  preopOpen(h, 'tags');
+  assert.equal(h.game.takeEvidence('oil-tag'), true);
+  preopDeliver(h, 'oil', 'oil-tag');
+  assert.equal(h.game.state.correct, 1);
+  assert.equal(h.game.dropEvidence('oil-tag'), false, 'accepted evidence cannot be duplicated');
+  preopOpen(h, 'tags');
+  assert.equal(h.game.takeEvidence('oil-tag'), false);
+  assert.equal(h.game.takeEvidence('oil-decoy'), true, 'returned decoy remains recoverable');
+});
+
+test('Pré-Op: last field point waits for capacity and the completed field evidence remains recoverable', t => {
+  const h = harness(t); h.game.start('preop');
+  const mission = h.game.state.preop;
+  preopTake(h, 'tags', 'oil-tag'); preopTake(h, 'tags', 'oil-decoy');
+  preopOpen(h, 'field-1'); preopOpen(h, 'field-2');
+  const last = mission.fieldPoints[2];
+  h.game.state.player.x = last.x; h.game.state.player.y = 400;
+  assert.equal(h.game.interactPreop(last.id), false);
+  assert.equal(last.recorded, false, 'a full prancheta cannot lose the final evidence');
+  assert.equal(h.game.dropEvidence('oil-decoy'), true);
+  assert.equal(h.game.interactPreop(last.id), true);
+  assert.deepEqual(mission.inventory, ['oil-tag', 'gas-evidence']);
+  assert.equal(h.game.dropEvidence('gas-evidence'), true);
+  assert.equal(h.game.interactPreop(last.id), true, 'the field evidence can be recovered after return');
+  assert.equal(mission.inventory.filter(id => id === 'gas-evidence').length, 1);
+});
+
+test('Pré-Op: the radio appears once, adds fifteen seconds, and never reopens a completed system', t => {
+  const h = harness(t); h.game.start('preop');
+  const s = h.game.state, mission = s.preop;
+  preopTake(h, 'documents', 'water-document');
+  preopDeliver(h, 'water', 'water-document');
+  assert.equal(mission.stations.find(station => station.id === 'water').done, true);
+  assert.equal(mission.radio.triggered, true); assert.equal(mission.radio.targetId, 'gas');
+  assert.equal(mission.bonusSeconds, 15); assert.equal(s.timeLeft, 135);
+  assert.deepEqual(mission.stations.find(station => station.id === 'gas').requiredIds, ['gas-evidence', 'radio-revision']);
+  const radioUntil = mission.radio.until;
+  assert.equal(h.game.triggerPreopRadio(), false);
+  assert.equal(mission.radio.until, radioUntil);
+  preopField(h); preopDeliver(h, 'gas', 'gas-evidence');
+  assert.equal(mission.stations.find(station => station.id === 'gas').done, false, 'radio complement is still required');
+  preopTake(h, 'revision', 'radio-revision'); preopDeliver(h, 'gas', 'radio-revision');
+  preopTake(h, 'tags', 'oil-tag'); preopDeliver(h, 'oil', 'oil-tag');
+  assert.equal(s.correct, 3); assert.equal(mission.bonusSeconds, 15);
+  assert.equal(s.mode, 'playing', 'completion still requires returning to the board');
+  assert.equal(h.game.finishPreop(), false, 'cannot close remotely');
+  preopOpen(h, 'board'); assert.equal(h.game.finishPreop(), true);
+  const elapsed = s.elapsed;
+  h.game.update(2.399); assert.equal(s.mode, 'playing');
+  assert.equal(s.elapsed, elapsed, 'accepted closure freezes the deadline during its animation');
+  h.game.update(0.001); assert.equal(s.mode, 'ended');
   assert.equal(h.endings[0].success, true);
   assert.match(h.endings[0].reason, /TAP aprovada \(FIC concluída\)/);
 });
 
-test('Pré-Op: an incorrect action can consume the final seconds and fail', t => {
+test('Pré-Op: all six system orders preserve completed work and permit final closure', t => {
   const h = harness(t);
-  h.game.start('preop'); h.frame();
-  h.approach(h.game.state.stations[0]);
-  h.game.update(71);
-  h.game.chooseTap(2);
-  assert.equal(h.game.state.mode, 'ended');
-  assert.equal(h.game.state.timeLeft, 0);
-  assert.equal(h.endings[0].success, false);
+  for (const order of [['oil','gas','water'], ['oil','water','gas'], ['gas','oil','water'], ['gas','water','oil'], ['water','oil','gas'], ['water','gas','oil']]) {
+    h.game.start('preop');
+    const mission = h.game.state.preop;
+    for (const id of order) {
+      if (id === 'gas') preopField(h);
+      else preopTake(h, id === 'oil' ? 'tags' : 'documents', id === 'oil' ? 'oil-tag' : 'water-document');
+      const base = id === 'oil' ? 'oil-tag' : id === 'gas' ? 'gas-evidence' : 'water-document';
+      preopDeliver(h, id, base);
+      const station = mission.stations.find(station => station.id === id);
+      if (!station.done) { preopTake(h, 'revision', 'radio-revision'); preopDeliver(h, id, 'radio-revision'); }
+      assert.equal(station.done, true, `${order.join('→')}: ${id}`);
+    }
+    assert.equal(mission.bonusSeconds, 15);
+    assert.ok(mission.stations.every(station => station.done));
+    preopOpen(h, 'board'); assert.equal(h.game.finishPreop(), true);
+    h.game.update(2.4); assert.equal(h.endings.at(-1).success, true);
+  }
+});
+
+test('Pré-Op: pause freezes mission and radio; restart clears inventory, extra time and evidence', t => {
+  const h = harness(t); h.game.start('preop');
+  preopTake(h, 'tags', 'oil-tag'); preopDeliver(h, 'oil', 'oil-tag');
+  preopTake(h, 'revision', 'radio-revision');
+  const s = h.game.state;
+  h.game.update(1);
+  const before = JSON.stringify({elapsed:s.elapsed,time:s.timeLeft,radio:s.preop.radio,inventory:s.preop.inventory});
+  h.game.pause(true); h.game.update(50);
+  assert.equal(h.game.dropEvidence('radio-revision'), false);
+  assert.equal(h.game.interactPreop('revision'), false);
+  assert.equal(JSON.stringify({elapsed:s.elapsed,time:s.timeLeft,radio:s.preop.radio,inventory:s.preop.inventory}), before);
+  h.game.pause(false); h.game.update(1);
+  assert.equal(s.elapsed, 2);
+  h.game.start('preop');
+  const fresh = h.game.state;
+  assert.equal(fresh.timeLeft, 120); assert.equal(fresh.correct, 0); assert.equal(fresh.attempt, 2);
+  assert.deepEqual(fresh.preop.inventory, []); assert.equal(fresh.preop.bonusSeconds, 0);
+  assert.equal(fresh.preop.radio.triggered, false); assert.equal(fresh.preop.closing, null);
+  assert.ok(fresh.preop.fieldPoints.every(point => !point.recorded));
+  assert.ok(fresh.preop.stations.every(station => !station.done && !station.acceptedIds.length));
+  assert.equal(fresh.preop.items.find(item => item.id === 'radio-revision').available, false);
+});
+
+test('Pré-Op: the deadline runs inside panels and incorrect delivery can consume the final seconds', t => {
+  const h = harness(t); h.game.start('preop');
+  preopOpen(h, 'board'); assert.equal(h.game.finishPreop(), false);
+  h.game.update(119.999); assert.equal(h.game.state.mode, 'playing');
+  h.game.update(0.001); assert.equal(h.game.state.mode, 'ended');
+  assert.equal(h.game.state.timeLeft, 0); assert.equal(h.endings[0].success, false);
+  h.game.start('preop'); preopTake(h, 'tags', 'oil-decoy'); preopOpen(h, 'oil');
+  h.game.update(116); assert.equal(h.game.deliverEvidence('oil-decoy'), false);
+  assert.equal(h.game.state.mode, 'ended'); assert.equal(h.game.state.timeLeft, 0);
+  assert.equal(h.endings[1].success, false);
+});
+
+function movePreopTo(h, x) {
+  const s = h.game.state, direction = x > s.player.x ? 'ArrowRight' : 'ArrowLeft';
+  h.game.setControl(direction, true);
+  let steps = 0;
+  while (Math.abs(s.player.x - x) > 3 && s.mode === 'playing' && steps++ < 5000) h.game.update(1 / 120);
+  h.game.setControl(direction, false);
+  assert.ok(Math.abs(s.player.x - x) <= 3, `route could not reach ${x}; position ${s.player.x}, mode ${s.mode}`);
+  for (let i=0;i<48;i++) h.game.update(1 / 120);
+}
+function climbPreop(h, y) {
+  h.game.setControl('ArrowUp', true);
+  let steps = 0;
+  while (h.game.state.player.y > y + .1 && h.game.state.mode === 'playing' && steps++ < 300) h.game.update(1 / 120);
+  h.game.setControl('ArrowUp', false);
+  assert.ok(Math.abs(h.game.state.player.y - y) < 1, `climb failed: ${h.game.state.player.y}`);
+}
+function preopRouteOpen(h, id) {
+  assert.equal(h.game.interactPreop(id), true, `route opens ${id}`);
+  h.game.update(.5); // Allow time to read the local interaction.
+}
+
+test('Pré-Op: all systems, elevated field evidence, radio revision and return are beatable with normal controls', t => {
+  const h = harness(t); h.game.start('preop'); h.frame();
+  const s = h.game.state;
+  // All movement below uses normal controls; no teleport, inventory injection or time edits.
+  h.game.setControl('Space', true); h.game.update(1/120); h.game.setControl('Space', false);
+  assert.ok(s.player.y < 500);
+  movePreopTo(h, 1000); preopRouteOpen(h, 'tags'); assert.equal(h.game.takeEvidence('oil-tag'), true); h.game.closeInteraction();
+  movePreopTo(h, 650); preopRouteOpen(h, 'oil'); assert.equal(h.game.deliverEvidence('oil-tag'), true); h.game.closeInteraction();
+  movePreopTo(h, 1389); climbPreop(h, 350); movePreopTo(h, 1450);
+  assert.equal(h.game.interactPreop('field-1'), true);
+  movePreopTo(h, 2100); h.game.setControl('KeyE', true); h.game.setControl('KeyE', false);
+  assert.equal(s.preop.fieldPoints[1].recorded, true, 'E registers the nearby field point');
+  movePreopTo(h, 2284); climbPreop(h, 400); movePreopTo(h, 2370);
+  assert.equal(h.game.interactPreop('field-3'), true); assert.ok(s.preop.inventory.includes('gas-evidence'));
+  movePreopTo(h, 1800); preopRouteOpen(h, 'gas'); assert.equal(h.game.deliverEvidence('gas-evidence'), true); h.game.closeInteraction();
+  movePreopTo(h, 2600); preopRouteOpen(h, 'revision'); assert.equal(h.game.takeEvidence('radio-revision'), true); h.game.closeInteraction();
+  movePreopTo(h, 3240); preopRouteOpen(h, 'documents'); assert.equal(h.game.takeEvidence('water-document'), true); h.game.closeInteraction();
+  assert.equal(s.preop.inventory.length, 2);
+  movePreopTo(h, 3020); preopRouteOpen(h, 'water');
+  assert.equal(h.game.deliverEvidence('water-document'), true); assert.equal(s.preop.stations[2].done, false);
+  assert.equal(h.game.deliverEvidence('radio-revision'), true); h.game.closeInteraction();
+  assert.equal(s.correct, 3); assert.equal(s.mode, 'playing');
+  movePreopTo(h, 190); preopRouteOpen(h, 'board'); assert.equal(h.game.finishPreop(), true);
+  h.game.update(2.4);
+  assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason);
+  assert.ok(s.elapsed < 135, `elapsed ${s.elapsed}`);
+  t.diagnostic(`Pre-Op route accepted after ${s.elapsed.toFixed(2)}s including panel reading delays.`);
+  assert.ok(s.preop.fieldPoints.every(point => point.recorded));
+  assert.ok(s.preop.stations.every(station => station.done));
+  assert.equal(s.preop.bonusSeconds, 15); assert.equal(s.score, 300);
+  assert.equal(s.preop.inventory.length, 0);
 });
 
 test('destroy removes input listeners and cancels RAF', t => {

@@ -1,5 +1,6 @@
 import { drawGame } from './renderer.js';
-import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, tapOutcome, deadlineExpired, rectanglesOverlap, officeHitOutcome, angleDistance, alignmentMatches, dynamicSyncStep } from './rules.js';
+import { makePreop, preopTargets, canReachPreop, PREOP_SECONDS, PREOP_BONUS_SECONDS, PREOP_PENALTY_SECONDS } from './preop-model.js';
+import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, deadlineExpired, rectanglesOverlap, officeHitOutcome, angleDistance, alignmentMatches, dynamicSyncStep } from './rules.js';
 
 const WIDTH = 1200;
 const HEIGHT = 600;
@@ -7,7 +8,7 @@ const GROUND = 500;
 const STAGES = {
   sms: { label: 'SMS · Olho vivo no convés', objective: 'Registre 5 desvios antes que os trabalhadores os corrijam.', limit: null },
   ieei: { label: 'IEEI · Operação anticorrosão', objective: 'Trate os 3 pontos de corrosão em menos de 60 segundos.', limit: RULES.repairSeconds },
-  preop: { label: 'Pré-Op / P-83 · Prontos para a TAP', objective: 'Conclua a preparação dos 3 sistemas em menos de 75 segundos.', limit: RULES.tapSeconds },
+  preop: { label: 'Pré-Op / P-83 · Só falta uma pendência!', objective: 'Resolva as pendências de óleo, gás e água e retorne ao quadro de fechamento.', limit: PREOP_SECONDS },
   pspo: { label: 'PSPO - Fuja dos forms de viagem!', objective: 'Salte as mesas, evite os formulários e pegue um café na copa.', limit: null },
   ied: { label: 'IED · No ritmo das máquinas', objective: 'Alinhe e sincronize os três conjuntos para estabilizar a P-83.', limit: RULES.dynamicSeconds },
 };
@@ -92,12 +93,14 @@ function makeWorkers() {
 
 function freshState(stageId) {
   const config = STAGES[stageId];
+  const preop = stageId === 'preop' ? makePreop() : null;
   return {
     stageId,
     stageLabel: config.label,
     objective: config.objective,
     mode: 'playing',
-    worldWidth: stageId === 'pspo' ? 6600 : 3400,
+    worldWidth: stageId === 'pspo' ? 6600 : stageId === 'preop' ? 3600 : 3400,
+    preop,
     camera: 0,
     elapsed: 0,
     player: { x: 165, y: GROUND, vx: 0, vy: 0, facing: 1, walking: false, grounded: true, climbing: false, ducking: false },
@@ -120,11 +123,7 @@ function freshState(stageId) {
       { id: 'rust-2', x: 1600, y: 434, step: 0, progress: 0, label: 'Suporte estrutural' },
       { id: 'rust-3', x: 2820, y: 434, step: 0, progress: 0, label: 'Vaso de pressão' },
     ] : [],
-    stations: stageId === 'preop' ? [
-      { id: 'tap-1', x: 470, y: 440, step: 0, label: 'Sistema de óleo', name: 'Óleo' },
-      { id: 'tap-2', x: 1600, y: 440, step: 0, label: 'Sistema de gás', name: 'Gás' },
-      { id: 'tap-3', x: 2820, y: 440, step: 0, label: 'Sistema de água', name: 'Água' },
-    ] : [],
+    stations: preop?.stations || [],
     score: 0,
     correct: 0,
     completedCount: 0,
@@ -177,7 +176,7 @@ export class Game {
     this.state.attempt = this.attempts[stageId] = (this.attempts[stageId] || 0) + 1;
     this.lastTime = null;
     this.lastUpdate = 0;
-    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : stageId === 'ied' ? 'Salte as passarelas, aproxime-se do primeiro conjunto e clique para integrar.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
+    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : stageId === 'ied' ? 'Salte as passarelas, aproxime-se do primeiro conjunto e clique para integrar.' : stageId === 'preop' ? 'Leia o quadro, recolha as evidências e volte para fechar as TAPs. E ou clique para interagir.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
     this.emit();
   }
 
@@ -205,6 +204,11 @@ export class Game {
       }
       return;
     }
+    if (event.code === 'KeyE' && this.state.stageId === 'preop') {
+      event.preventDefault();
+      if (!event.repeat && !this.state.activeTarget) this.interactPreop();
+      return;
+    }
     if (event.code === 'KeyE' && this.state.stageId === 'pspo') {
       event.preventDefault();
       if (!event.repeat) this.collectCoffee();
@@ -230,7 +234,7 @@ export class Game {
       }
       return;
     }
-    if (code === 'KeyE') { if (pressed) this.collectCoffee(); return; }
+    if (code === 'KeyE') { if (pressed) { if (this.state?.stageId === 'preop') this.interactPreop(); else this.collectCoffee(); } return; }
     if (pressed && this.state?.mode !== 'playing') return;
     if (pressed) {
       this.keys.add(code);
@@ -247,6 +251,15 @@ export class Game {
     const s = this.state;
     if (!s || s.mode !== 'playing' || s.activeTarget || event.button > 0) return;
     const point = this.pointerPosition(event);
+    if (s.stageId === 'preop') {
+      const target = preopTargets(s.preop).find(target => {
+        const width = target.kind === 'board' ? 130 : target.kind === 'field' ? 45 : 100;
+        const top = { station: 252, board: 220, rack: 185, field: 110 }[target.kind];
+        return Math.abs(point.x - target.x) <= width && point.y >= target.y - top && point.y <= target.y + 60;
+      });
+      if (target) this.interactPreop(target.id);
+      return;
+    }
     if (s.stageId === 'ied') {
       const machine = s.dynamic.machines.find(m => Math.abs(point.x - m.x) <= 105 && point.y >= m.y - 110 && point.y <= m.y + 85);
       if (!machine) return;
@@ -333,6 +346,7 @@ export class Game {
   getTarget() {
     const s = this.state;
     if (!s?.activeTarget) return null;
+    if (s.activeTarget.type === 'preop') return preopTargets(s.preop).find(target => target.id === s.activeTarget.id) || null;
     return (s.activeTarget.type === 'dynamic' ? s.dynamic.machines : s.activeTarget.type === 'repair' ? s.rust : s.stations).find(t => t.id === s.activeTarget.id) || null;
   }
 
@@ -358,7 +372,7 @@ export class Game {
     }
     machine.alignmentHits++;
     machine.alignmentArmed = false;
-    this.message(`Alinhamento ${machine.alignmentHits}/3 confirmado!`, 'success');
+    this.message(`Alinhamento ${machine.alignmentHits}/3 confirmado!`, 'success', 3, 'align');
     if (machine.alignmentHits >= RULES.dynamicAlignmentHits) {
       machine.phase = 'sync';
       machine.stableTime = 0;
@@ -386,6 +400,7 @@ export class Game {
     s.completedCount = 1;
     s.score = (RULES.officeMaxHits - s.office.hits) * 100;
     this.burst(coffee.x, coffee.y - 45, '#efcc78');
+    this.sound('coffee');
     this.end(true, 'Café na mão! Anderson chegou à copa do 12º andar da Torre B do EDISEN.');
     return true;
   }
@@ -411,6 +426,7 @@ export class Game {
     const s = this.state;
     const target = this.getTarget();
     if (!target || s.mode !== 'playing' || s.activeTarget.type !== 'repair') return;
+    if (s.selectedTool === target.step && target.progress === 0 && Number.isFinite(amount) && amount > 0) this.sound(['water', 'brush', 'neutral', 'paint'][target.step]);
     const outcome = treatmentOutcome(target.step, s.selectedTool, target.progress, amount);
     target.step = outcome.step;
     target.progress = outcome.progress;
@@ -430,33 +446,140 @@ export class Game {
     this.emit();
   }
 
-  chooseTap(index) {
-    const s = this.state;
-    const target = this.getTarget();
-    if (!target || s.mode !== 'playing' || s.activeTarget.type !== 'tap' || !Number.isInteger(index) || index < 0 || index >= RULES.tapSteps) return false;
-    const outcome = tapOutcome(target.step, index);
-    target.step = outcome.step;
-    if (!outcome.accepted) {
-      s.elapsed += outcome.penalty;
-      s.timeLeft = Math.max(0, STAGES[s.stageId].limit - s.elapsed);
-      this.message('Ordem incorreta: confira a prontidão antes de avançar. −5 segundos.', 'error');
-      if (deadlineExpired(s.elapsed, STAGES[s.stageId].limit)) this.end(false, 'O prazo terminou antes da conclusão dos três sistemas.');
-    } else if (outcome.completed) {
-      s.correct += 1;
-      s.completedCount = s.correct;
-      s.score += 100;
-      this.burst(target.x, target.y, '#b5ec65');
-      this.message(`${target.label}: TAP aprovada (FIC concluída).`, 'success');
-      this.closeInteraction();
-      if (s.correct >= 3) this.end(true, 'Três sistemas com TAP aprovada (FIC concluída)!');
-    } else this.message('Etapa confirmada. Continue a sequência de preparação.', 'success');
+  preopReady() { return this.state?.stageId === 'preop' && this.state.mode === 'playing' && !this.state.preop.closing; }
+
+  interactPreop(id = null) {
+    if (!this.preopReady() || this.state.activeTarget) return false;
+    const s = this.state, mission = s.preop;
+    const targets = preopTargets(mission);
+    const target = id ? targets.find(target => target.id === id) : targets.filter(target => canReachPreop(s.player, target)).sort((a, b) => Math.hypot(a.x - s.player.x, a.y - s.player.y) - Math.hypot(b.x - s.player.x, b.y - s.player.y))[0];
+    if (!target || !canReachPreop(s.player, target)) { this.message('Aproxime-se do ponto marcado. Use as escadas para alcançar as verificações elevadas.', 'info'); return false; }
+    if (target.kind === 'field') return this.recordFieldPoint(target.id);
+    s.activeTarget = { type: 'preop', id: target.id };
+    this.keys.clear(); this.jumpQueued = false; s.player.vx = 0; s.player.walking = false;
+    this.callbacks.onInteraction?.({ type: 'preop', target, state: s });
     this.emit();
-    return outcome.accepted;
+    return true;
   }
 
-  message(text, tone = 'info', seconds = 3) {
+  recordFieldPoint(id) {
+    if (!this.preopReady() || this.state.activeTarget) return false;
+    const s = this.state, mission = s.preop;
+    const point = mission.fieldPoints.find(point => point.id === id);
+    if (!point || !canReachPreop(s.player, point)) return false;
+    const evidence = mission.items.find(item => item.id === 'gas-evidence');
+    if (point.recorded) {
+      if (mission.fieldPoints.every(point => point.recorded) && evidence.available && !evidence.delivered) return this.takeEvidence(evidence.id);
+      this.message('Este ponto já está registrado na evidência de campo.', 'info'); return false;
+    }
+    const last = mission.fieldPoints.filter(point => point.recorded).length === 2;
+    if (last && mission.inventory.length >= mission.capacity) { this.message('Prancheta cheia! Entregue ou devolva um item antes de concluir o registro de campo.', 'info'); return false; }
+    point.recorded = true;
+    this.sound('record'); this.burst(point.x, point.y - 30, '#b8e288');
+    if (last) {
+      evidence.available = true;
+      this.takeEvidence(evidence.id);
+      this.message('Três pontos registrados! Leve a evidência GAS-083 ao sistema de gás.', 'success', 4, false);
+    } else this.message(`Verificação ${mission.fieldPoints.filter(point => point.recorded).length}/3 registrada. Continue pelas passarelas.`, 'success', 3, false);
+    this.emit(); return true;
+  }
+
+  takeEvidence(id) {
+    if (!this.preopReady()) return false;
+    const s = this.state, mission = s.preop, item = mission.items.find(item => item.id === id);
+    if (!item || !item.available || item.collected || item.delivered) return false;
+    if (item.kind === 'field') {
+      if (!mission.fieldPoints.every(point => point.recorded) || !mission.fieldPoints.some(point => canReachPreop(s.player, point)) || s.activeTarget) return false;
+    } else {
+      const target = this.getTarget();
+      if (s.activeTarget?.type !== 'preop' || target?.kind !== 'rack' || target.id !== item.rackId || !target.available || !canReachPreop(s.player, target)) return false;
+    }
+    if (mission.inventory.length >= mission.capacity) { this.message('Prancheta cheia: capacidade de dois itens. Entregue ou devolva um item.', 'info'); return false; }
+    item.collected = true; item.available = false; mission.inventory.push(item.id);
+    this.sound('pickup'); this.message(`${item.label} na prancheta. Confira o pedido antes de entregar.`, 'info');
+    this.emit(); return true;
+  }
+
+  dropEvidence(id) {
+    if (!this.preopReady()) return false;
+    const mission = this.state.preop, item = mission.items.find(item => item.id === id);
+    if (!item || !mission.inventory.includes(id) || item.delivered) return false;
+    mission.inventory = mission.inventory.filter(itemId => itemId !== id);
+    item.collected = false; item.available = true;
+    this.message(`${item.label} devolvido à origem. Pode ser recolhido novamente.`, 'info');
+    this.emit(); return true;
+  }
+
+  deliverEvidence(id, stationId = this.state?.activeTarget?.id) {
+    if (!this.preopReady()) return false;
+    const s = this.state, mission = s.preop;
+    const station = mission.stations.find(station => station.id === stationId);
+    const item = mission.items.find(item => item.id === id);
+    if (!station || station.done || !item || !mission.inventory.includes(id) || s.activeTarget?.type !== 'preop' || s.activeTarget.id !== station.id || !canReachPreop(s.player, station)) return false;
+    if (!station.requiredIds.includes(id) || station.acceptedIds.includes(id)) {
+      s.elapsed += PREOP_PENALTY_SECONDS;
+      s.timeLeft = Math.max(0, PREOP_SECONDS + mission.bonusSeconds - s.elapsed);
+      this.message('Evidência incorreta para esta pendência. Confira código, revisão e assinatura. −5 segundos.', 'error');
+      if (s.timeLeft <= 0) this.end(false, 'O prazo terminou antes do fechamento das TAPs.');
+      return false;
+    }
+    mission.inventory = mission.inventory.filter(itemId => itemId !== id);
+    item.collected = false; item.delivered = true; item.available = false;
+    station.acceptedIds.push(id);
+    this.burst(station.x, station.y - 50, '#b8e288');
+    if (station.requiredIds.every(required => station.acceptedIds.includes(required))) {
+      station.done = true; station.step = 3;
+      s.correct++; s.completedCount = s.correct; s.score += 100;
+      this.sound('complete');
+      this.message(`${station.name}: pendências resolvidas e aprovação pronta para fechamento.`, 'success', 4, false);
+      if (!mission.radio.triggered) this.triggerPreopRadio();
+      else if (s.correct === 3) this.message('Três sistemas prontos! Volte ao quadro no início do convés para fechar as TAPs.', 'success', 6, false);
+    } else {
+      const remaining = station.requiredIds.filter(required => !station.acceptedIds.includes(required)).map(required => mission.items.find(item => item.id === required)?.label || required);
+      this.message(`Evidência aceita. Falta: ${remaining.join(', ')}.`, 'success', 4, 'deliver');
+    }
+    this.emit(); return true;
+  }
+
+  triggerPreopRadio() {
+    const s = this.state, mission = s.preop;
+    if (mission.radio.triggered) return false;
+    const station = ['water', 'gas', 'oil'].map(id => mission.stations.find(station => station.id === id)).find(station => !station.done);
+    if (!station) return false;
+    const item = mission.items.find(item => item.id === 'radio-revision');
+    item.systemId = station.id; item.label = `Revisão complementar · ${station.name}`;
+    item.detail = `${station.code} · revisão complementar assinada`; item.available = true;
+    station.requiredIds.push(item.id);
+    mission.racks.find(rack => rack.id === 'revision').available = true;
+    mission.radio = { triggered: true, targetId: station.id, until: s.elapsed + 6, text: `Chegou a última revisão! Busque o complemento de ${station.name} no ponto RÁDIO. +15s` };
+    mission.bonusSeconds = PREOP_BONUS_SECONDS;
+    s.timeLeft = Math.max(0, PREOP_SECONDS + mission.bonusSeconds - s.elapsed);
+    this.sound('radio'); this.message(mission.radio.text, 'info', 6);
+    return true;
+  }
+
+  finishPreop() {
+    if (!this.preopReady()) return false;
+    const s = this.state, mission = s.preop;
+    if (s.activeTarget?.type !== 'preop' || s.activeTarget.id !== mission.board.id || !canReachPreop(s.player, mission.board)) return false;
+    if (!mission.stations.every(station => station.done)) { this.message('Resolva as pendências dos três sistemas antes de fechar as TAPs.', 'info'); return false; }
+    if (s.timeLeft <= 0) return false;
+    mission.closing = { startedAt: s.elapsed, elapsed: 0, duration: 2.4 };
+    this.keys.clear(); this.jumpQueued = false; s.player.vx = 0; s.player.walking = false;
+    s.activeTarget = null;
+    this.message('Assinaturas confirmadas. Digitalizando as evidências e registrando as aprovações…', 'info', 4);
+    this.sound('complete'); this.emit(); return true;
+  }
+
+  chooseTap() { return false; }
+
+  sound(type) { this.callbacks.onSound?.({ type, stageId: this.state?.stageId }); }
+
+  message(text, tone = 'info', seconds = 3, soundType) {
     if (!this.state) return;
     this.state.feedback = { text, tone, until: this.state.elapsed + seconds };
+    if (soundType) this.sound(soundType);
+    else if (soundType !== false && (tone === 'success' || tone === 'error')) this.sound(tone === 'success' ? 'success' : 'error');
     this.emit();
   }
 
@@ -493,7 +616,7 @@ export class Game {
     p.ducking = false; p.climbing = false;
     p.vx = s.activeTarget ? 0 : ((right ? 1 : 0) - (left ? 1 : 0)) * 290;
     if (p.vx) p.facing = Math.sign(p.vx);
-    if (this.jumpQueued && p.grounded && !s.activeTarget) { p.vy = -560; p.grounded = false; }
+    if (this.jumpQueued && p.grounded && !s.activeTarget) { p.vy = -560; p.grounded = false; this.sound('jump'); }
     this.jumpQueued = false;
     const oldX = p.x, oldY = p.y;
     p.vy += 1500 * dt;
@@ -565,7 +688,7 @@ export class Game {
     p.climbing = false;
     p.vx = ((right ? 1 : 0) - (left ? 1 : 0)) * (p.ducking ? 170 : 290);
     if (p.vx) p.facing = Math.sign(p.vx);
-    if (this.jumpQueued && p.grounded) { p.vy = -560; p.grounded = false; p.ducking = false; }
+    if (this.jumpQueued && p.grounded) { p.vy = -560; p.grounded = false; p.ducking = false; this.sound('jump'); }
     this.jumpQueued = false;
     const oldX = p.x, oldY = p.y;
     p.vy += 1500 * dt;
@@ -610,7 +733,7 @@ export class Game {
         startedAt: s.elapsed, until: s.elapsed + encounter.warningDuration,
       };
       office.spawnIndex += 1;
-      if (encounter.kind !== 'normal') this.message(`Atenção: ${encounter.label}! Um formulário especial está chegando.`, 'error', 1.4);
+      if (encounter.kind !== 'normal') this.message(`Atenção: ${encounter.label}! Um formulário especial está chegando.`, 'error', 1.4, 'warning');
     }
     if (office.telegraph) office.telegraph.x = p.x + office.telegraph.spawnDistance;
     if (office.telegraph && s.elapsed >= office.telegraph.until) {
@@ -638,7 +761,7 @@ export class Game {
       if (outcome.damaged) {
         this.burst(p.x, p.y - 65, '#ed9476');
         const label = form.kind && form.kind !== 'normal' ? form.label : `Formulário de ${form.origin}`;
-        this.message(`${office.hits}/3 · ${label}! Desvie dos próximos.`, 'error');
+        this.message(`${office.hits}/3 · ${label}! Desvie dos próximos.`, 'error', 3, 'hit');
         if (outcome.failed) {
           office.forms = office.forms.filter(f => f.active);
           this.end(false, 'Três formulários alcançaram Anderson antes do café. Hora de tentar outro caminho até a copa!');
@@ -672,6 +795,7 @@ export class Game {
       if (this.jumpQueued && p.grounded && !s.activeTarget) {
         p.vy = -560;
         p.grounded = false;
+        this.sound('jump');
       }
       p.vy += 1500 * dt;
       p.y += p.vy * dt;
@@ -695,8 +819,13 @@ export class Game {
   update(dt, physicsDt = dt) {
     const s = this.state;
     if (!s || s.mode !== 'playing') return;
+    if (s.preop?.closing) {
+      s.preop.closing.elapsed = Math.min(s.preop.closing.duration, s.preop.closing.elapsed + dt);
+      if (s.preop.closing.elapsed >= s.preop.closing.duration) this.end(true, 'Três sistemas com TAP aprovada (FIC concluída)! Assinaturas e evidências registradas.');
+      return;
+    }
     s.elapsed += dt;
-    const limit = STAGES[s.stageId].limit;
+    const limit = s.preop ? PREOP_SECONDS + s.preop.bonusSeconds : STAGES[s.stageId].limit;
     if (limit !== null) {
       s.timeLeft = Math.max(0, limit - s.elapsed);
       if (deadlineExpired(s.elapsed, limit)) {
@@ -739,6 +868,7 @@ export class Game {
     const s = this.state;
     if (!s || s.mode === 'ended') return;
     s.mode = 'ended';
+    this.sound(success ? 'victory' : 'defeat');
     s.activeTarget = null;
     s.selectedTool = null;
     this.keys.clear();

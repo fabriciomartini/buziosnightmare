@@ -1,6 +1,8 @@
 import { Game } from './engine.js';
 import { drawGame, drawPortrait } from './renderer.js';
 import { drawIEDChallenge } from './ied-renderer.js';
+import { GameAudio } from './audio.js';
+import { PreopUI } from './preop-ui.js';
 
 const $ = id => document.getElementById(id);
 const sequence = ['sms', 'ieei', 'ied', 'pspo', 'preop'];
@@ -10,11 +12,15 @@ const levels = {
   ieei: { number: '02', department: 'IEEI', title: 'Ferrugem, aqui não!', person: 'José Roberto', role: 'Integração de Equipamentos Estáticos e Inspeção', short: 'A corrosão não tira folga. Você também não.', color: '#efc775', objective: 'Recupere 3 pontos', goal: 3, story: 'A maresia não deu trégua à P-83. José Roberto tem um minuto para encontrar e recuperar três pontos de corrosão espalhados pelo convés. Cada tratamento precisa acontecer na ordem certa.', rules: ['Aproxime-se do ponto enferrujado e clique nele.', 'Escolha: jato d’água → escova → neutralizador → pintura.', 'Segure e arraste sobre a área central até completar cada etapa. Recupere os 3 pontos em menos de 60 segundos.'], meta: '60 segundos · O cronômetro continua durante o tratamento. Sequência simplificada exclusivamente para a dinâmica do jogo.' },
   ied: { number: '03', department: 'IED', title: 'Segura essa vibração!', person: 'Willian', role: 'Integração de Equipamentos Dinâmicos', short: 'Três máquinas. Um turno. Encontre o ritmo.', color: '#9fcebf', objective: 'Integre 3 conjuntos', goal: 3, story: 'O convés da P-83 está fora de compasso: bombas e compressores tremem e sacodem as passarelas. Atravesse a área, alinhe os eixos e estabilize a rotação de três conjuntos. Cada máquina integrada libera a próxima passagem. Vamos colocar essa turma na mesma rotação!', rules: ['Caminhe com ← →, pule com espaço e clique na máquina quando estiver perto.', 'Alinhe os eixos: aperte espaço ou Alinhar quando as marcas coincidirem. Acerte 3 vezes; cada erro custa 3 segundos.', 'Depois use ← → para manter o ponteiro na faixa verde durante 4 segundos seguidos. Integre os 3 conjuntos em menos de 90 segundos.'], meta: '90 segundos · O relógio continua nos desafios · Sair da faixa verde interrompe a estabilidade; desvios de rotação podem custar 2 segundos. Representação cartunesca de integração.' },
   pspo: { number: '04', department: 'PSPO', title: 'PSPO - Fuja dos forms de viagem!', person: 'Anderson', role: 'Planejamento e Suporte para Operação', short: 'Entre você e o café: uma chuva de forms.', color: '#84bbc3', objective: 'Chegue à copa e pegue o café', goal: 1, story: '12º andar, Torre B do EDISEN. Anderson só queria uma pausa, mas os formulários de viagens internacionais do IED, IEEI, SMS e Pré-Op/P-83 não param de chegar! O caminho até a copa ficou maior, e duas demandas especiais prometem perseguir essa pausa: Remarcação de retorno e Urgente. Saia da baia e conquiste aquele café.', rules: ['Corra com ← →, pule mesas com espaço ou ↑ e use ↓ para se abaixar.', 'Remarcação de retorno e Urgente aparecem uma vez cada por tentativa: alerta breve, chegada próxima e menos tempo para reagir. Desvie dos forms; o terceiro impacto encerra a tentativa.', 'Chegue à copa e pressione E ou clique na máquina automática para pegar o café.'], meta: '3 impactos e acabou · 2 encontros especiais, uma vez cada · Sem limite de tempo · Cenário cartunesco inspirado em referências públicas do EDISEN; disposição interna fictícia.' },
-  preop: { number: '05', department: 'Pré-Op / P-83', title: 'Prontos para a TAP', person: 'Equipe P-83', role: 'Pré-operação da P-83 · Fase proposta', short: 'Preparar. Verificar. Aprovar.', color: '#c2b9d9', objective: 'Prepare 3 sistemas', goal: 3, story: 'O próximo marco da P-83 está chegando. Percorra o convés e ajude a equipe a preparar os sistemas de óleo, gás e água para a TAP. Esta missão é uma proposta para a demonstração.', rules: ['Caminhe até os sistemas destacados e clique para abrir a missão.', 'Siga: prontidão CCM → verificação em campo → documentação e aprovação.', 'Conclua os 3 sistemas em menos de 75 segundos. Cada escolha fora de ordem custa 5 segundos.'], meta: '75 segundos · Proposta de roteiro · Marco final: TAP aprovada (FIC concluída). Interação lúdica simplificada.' }
+  preop: { number: '05', department: 'Pré-Op / P-83', title: 'Só falta uma pendência!', person: 'Fabrício', role: 'Pré-operação da P-83', short: 'Encontre. Confira. Feche a TAP.', color: '#c2b9d9', objective: 'Resolva 3 pendências e volte ao terminal', goal: 3, story: 'A reunião está chegando e três sistemas estão quase prontos. Fabrício precisa encontrar uma identificação, registrar evidências de campo e conferir a documentação. Escolha sua rota pelo convés, organize a prancheta e feche as TAPs. Pelo rádio, alguém garante: agora é só fechar a documentação…', rules: ['Use as setas e espaço para explorar. Perto de um ponto, pressione E ou clique para interagir.', 'Óleo: encontre a placa certa. Gás: registre os 3 pontos. Água: confira revisão e assinatura. Carregue até 2 evidências; arraste ou selecione e entregue no sistema correspondente.', 'Você tem 120 segundos. Entrega incorreta custa 5s. Uma chamada traz uma revisão extra e +15s. Conclua os 3 sistemas e volte ao terminal inicial para fechar as TAPs.'], meta: 'Prancheta: 2 espaços · Uma chamada pelo rádio · Marco final: TAP aprovada (FIC concluída).' }
 };
 let save = { completed: [], best: {} };
 try { const parsed = JSON.parse(localStorage.getItem(STORAGE)); if (parsed && Array.isArray(parsed.completed)) save = { completed: parsed.completed.filter(x => sequence.includes(x)), best: parsed.best || {} }; } catch { /* Storage may be unavailable in private mode. */ }
-let mode = 'campaign', activeStage = null, game = null, selectedStage = null, result = null, pauseCause = null, lastFeedback = '', audio = null, soundEnabled = false;
+let mode = 'campaign', activeStage = null, game = null, selectedStage = null, result = null, pauseCause = null, lastFeedback = '';
+const audio = new GameAudio();
+let audioMode = null, soundWanted = true;
+try { soundWanted = localStorage.getItem('buzios-audio') !== 'off'; const volume = Number(localStorage.getItem('buzios-volume')); if (localStorage.getItem('buzios-volume') !== null) audio.setVolume(volume); } catch {}
+const preopUI = new PreopUI({ getGame: () => game, onPause: () => pauseGame() });
 const persist = () => { try { localStorage.setItem(STORAGE, JSON.stringify(save)); } catch { /* Gameplay works without persistence. */ } };
 const nextCampaign = () => sequence.find(id => !save.completed.includes(id)) || 'sms';
 const unlocked = id => mode === 'free' || save.completed.includes(id) || sequence.indexOf(id) === 0 || sequence.slice(0, sequence.indexOf(id)).every(x => save.completed.includes(x));
@@ -50,7 +56,7 @@ function renderMenu() {
  $('campaign-start').innerHTML = `${save.completed.length && save.completed.length < sequence.length ? 'Continuar campanha' : 'Iniciar campanha'} <span>➜</span>`;
  $('mission-grid').innerHTML = Object.entries(levels).map(([id, l]) => {
   const lock = !l.future && !unlocked(id), done = save.completed.includes(id);
-  return `<button class="mission-card ${l.future ? 'future' : lock ? 'locked' : ''}" data-stage="${id}" style="--card-color:${l.color}" ${l.future || lock ? 'disabled' : ''} aria-label="${l.department}: ${l.future ? 'em breve' : lock ? 'bloqueada na campanha' : l.title}"><div class="card-art"><span class="card-number">${l.number}</span><span class="card-status">${l.future ? 'EM BREVE' : done ? '✓ CONCLUÍDA' : lock ? 'BLOQUEADA' : id === 'preop' ? 'PROPOSTA' : 'DISPONÍVEL'}</span>${cardDrawing(id)}</div><div class="card-content"><h3>${l.department}</h3><p>${l.short}</p><div class="card-bottom"><span>${l.future ? 'Próximos capítulos' : lock ? 'Avance na campanha' : l.person}</span><span>${l.future || lock ? '○' : '↗'}</span></div></div></button>`;
+  return `<button class="mission-card ${l.future ? 'future' : lock ? 'locked' : ''}" data-stage="${id}" style="--card-color:${l.color}" ${l.future || lock ? 'disabled' : ''} aria-label="${l.department}: ${l.future ? 'em breve' : lock ? 'bloqueada na campanha' : l.title}"><div class="card-art"><span class="card-number">${l.number}</span><span class="card-status">${l.future ? 'EM BREVE' : done ? '✓ CONCLUÍDA' : lock ? 'BLOQUEADA' : 'DISPONÍVEL'}</span>${cardDrawing(id)}</div><div class="card-content"><h3>${l.department}</h3><p>${l.short}</p><div class="card-bottom"><span>${l.future ? 'Próximos capítulos' : lock ? 'Avance na campanha' : l.person}</span><span>${l.future || lock ? '○' : '↗'}</span></div></div></button>`;
  }).join('');
 }
 function setMode(value) { mode = value; renderMenu(); }
@@ -66,34 +72,41 @@ function brief(id) {
  showDialog('brief-dialog');
 }
 function start(id) {
- closeAll(); pauseCause = null; activeStage = id; lastFeedback = ''; result = null;
+ closeAll(); pauseCause = null; activeStage = id; audioMode = null; preopUI.reset(); audio.start(id); if (soundWanted) audio.enable().then(() => { syncAudioButton(); if (game?.getSnapshot()?.mode === 'paused') audio.pause(); }); lastFeedback = ''; result = null;
  $('home-screen').hidden = true; $('game-screen').hidden = false; document.body.classList.add('in-game');
  const l = levels[id]; $('game-department').textContent = `${l.department} / ${mode === 'campaign' ? 'CAMPANHA' : 'LIVRE'}`; $('game-title').textContent = l.title;
  $('hud-person').textContent = l.person.toUpperCase(); $('hud-objective').textContent = l.objective;
  $('metric-label').textContent = id === 'sms' ? 'PLACAR' : id === 'pspo' ? 'ATÉ A COPA' : 'TEMPO';
  $('office-route').hidden = id !== 'pspo';
- $('coffee-touch').hidden = id !== 'pspo';
+ $('coffee-touch').hidden = !['pspo','preop'].includes(id);
+ $('coffee-touch').textContent = id === 'preop' ? 'Interagir · E' : 'Café';
+ $('coffee-touch').setAttribute('aria-label', id === 'preop' ? 'Interagir com o ponto próximo' : 'Pegar café');
+ $('preop-hud').hidden = id !== 'preop';
  document.querySelector('[data-key="ArrowUp"]').setAttribute('aria-label', ['pspo','ied'].includes(id) ? 'Pular' : 'Subir');
  document.querySelector('[data-key="ArrowDown"]').setAttribute('aria-label', id === 'pspo' ? 'Abaixar' : 'Descer');
  $('game-screen').classList.toggle('office-game', id === 'pspo');
  $('game-screen').classList.toggle('dynamic-game', id === 'ied');
+ $('game-screen').classList.toggle('preop-game', id === 'preop');
  document.querySelector('[data-key="ArrowDown"]').hidden = id === 'ied';
  $('game-canvas').setAttribute('aria-label', id === 'pspo' ? 'Escritório do EDISEN. Setas para correr, espaço para pular mesas, seta para baixo para abaixar e E ou clique na máquina para pegar café. Evite o terceiro formulário.' : id === 'ied' ? 'Convés da P-83. Setas para caminhar, espaço para pular passarelas. Aproxime-se e clique nas máquinas para alinhar e sincronizar.' : 'Área de jogo. Setas para caminhar e subir escadas, espaço para pular e mouse para interagir.');
  $('control-legend').innerHTML = id === 'pspo' ? '<span><kbd>←</kbd><kbd>→</kbd> correr</span><span><kbd>espaço</kbd><kbd>↑</kbd> pular</span><span><kbd>↓</kbd> abaixar</span><span><kbd>E</kbd> ou clique · café</span>' : '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span>◉ clicar para interagir</span>';
+ if (id === 'preop') { $('control-legend').innerHTML = '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span><kbd>E</kbd> ou clique · interagir</span>'; $('game-canvas').setAttribute('aria-label','Convés da P-83. Fabrício procura evidências para óleo, gás e água. Setas para andar e subir escadas, espaço para pular, E ou clique para interagir. Volte ao terminal após resolver os três sistemas.'); }
  if (id === 'ied') $('control-legend').innerHTML = '<span><kbd>←</kbd><kbd>→</kbd> mover / ajustar</span><span><kbd>espaço</kbd> pular / alinhar</span><span>◉ clicar na máquina</span>';
  $('game-footnote').textContent = id === 'pspo' ? 'EDISEN · Torre B · 12º andar — interpretação cartunesca; disposição interna fictícia.' : 'Uma aventura fictícia na P-83. As interações são simplificações para o jogo.';
  $('audit-panel').hidden = id !== 'sms'; $('audit-panel').open = false;
- if (!game) game = new Game($('game-canvas'), { onUpdate: update, onEnd: end, onInteraction: interaction });
+ if (!game) game = new Game($('game-canvas'), { onUpdate: update, onEnd: end, onInteraction: interaction, onSound: event => audio.sfx(event.type) });
  game.start(id); $('game-canvas').focus(); window.scrollTo(0,0);
 }
 function goHome() {
- closeAll(); if (game) { game.destroy(); game = null; }
+ audio.stop(); audioMode = null; preopUI.reset(); closeAll(); if (game) { game.destroy(); game = null; }
  activeStage = null; pauseCause = null; dragging = false;
  $('game-screen').hidden = true; $('home-screen').hidden = false; document.body.classList.remove('in-game'); renderMenu(); window.scrollTo(0,0);
 }
 function update(s) {
  if (!s || !activeStage) return;
  const l = levels[s.stageId];
+ if (s.mode !== audioMode) { if (s.mode === 'paused') audio.pause(); else if (s.mode === 'playing' && audioMode === 'paused') audio.resume(); audioMode = s.mode; }
+ if (s.preop) preopUI.updateHUD(s);
  if (s.stageId === 'sms') $('audit-list').innerHTML = s.auditLog.length ? s.auditLog.map((entry,i) => `<li>Registro ${i+1} · ${entry.label} · ${entry.time.toFixed(1)}s</li>`).join('') : '<li class="empty-record">Nenhum desvio registrado. Observe os EPIs no convés.</li>';
  if (s.stageId === 'pspo') {
   const o = s.office, percent = Math.min(100, Math.round(o.progress * 100));
@@ -111,7 +124,7 @@ function update(s) {
  }
  const feedback = s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : s.stageId === 'pspo' ? 'O café está no fim do corredor. Pule as mesas e desvie dos forms!' : s.stageId === 'ied' ? 'Aproxime-se da próxima máquina. Alinhe os eixos e encontre a rotação certa!' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
  if ($('game-feedback').textContent !== feedback) $('game-feedback').textContent = feedback; $('game-feedback').dataset.tone = s.feedback.until >= s.elapsed ? s.feedback.tone : 'info';
- if (feedback !== lastFeedback) { if (s.feedback.until >= s.elapsed) { if (s.feedback.tone === 'success') beep(600); if (s.feedback.tone === 'error') beep(180); } lastFeedback = feedback; }
+ if (feedback !== lastFeedback) lastFeedback = feedback;
  if (s.mode === 'paused' && pauseCause !== 'help' && !$('pause-dialog').open) showDialog('pause-dialog');
  if (s.activeTarget) updateInteraction(s);
  else if ($('interaction-dialog').open) { stopIEDDraw(); $('interaction-dialog').close(); dragging = false; if(s.mode === 'playing') $('game-canvas').focus(); }
@@ -120,12 +133,12 @@ function end(outcome) {
  result = outcome; dragging = false; closeAll(); const l = levels[outcome.stageId];
  if (outcome.success) {
   if (mode === 'campaign' && !save.completed.includes(outcome.stageId)) save.completed.push(outcome.stageId);
-  const best = save.best[outcome.stageId]; if (!best || outcome.elapsed < best) save.best[outcome.stageId] = outcome.elapsed; persist(); beep(860);
+  const best = save.best[outcome.stageId]; if (!best || outcome.elapsed < best) save.best[outcome.stageId] = outcome.elapsed; persist();
  }
  const campaignDone = outcome.success && mode === 'campaign' && sequence.every(id => save.completed.includes(id));
  $('result-medal').textContent = outcome.success ? '★' : '↻';
  $('result-eyebrow').textContent = outcome.success ? campaignDone ? 'CAMPANHA CONCLUÍDA' : 'MISSÃO CUMPRIDA' : 'NOVA TENTATIVA';
- $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : outcome.stageId === 'pspo' ? 'Café conquistado!' : outcome.stageId === 'ied' ? 'Na mesma rotação!' : 'Boa, equipe!' : outcome.stageId === 'pspo' ? 'Papelada demais!' : 'Vamos de novo?';
+ $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : outcome.stageId === 'pspo' ? 'Café conquistado!' : outcome.stageId === 'ied' ? 'Na mesma rotação!' : outcome.stageId === 'preop' ? 'Pendências encerradas!' : 'Boa, equipe!' : outcome.stageId === 'pspo' ? 'Papelada demais!' : 'Vamos de novo?';
  $('result-message').textContent = campaignDone ? 'As cinco gerências, um só time! SMS, IEEI, IED, PSPO e Pré-Op/P-83: campanha concluída.' : outcome.reason;
  $('result-stats').innerHTML = outcome.stageId === 'pspo' ? `<span><strong>${game.getSnapshot().office.hits} / 3</strong>impactos</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de corrida</span>` : `<span><strong>${outcome.correct} / ${l.goal}</strong>${outcome.stageId === 'sms' ? 'registros' : 'concluídos'}</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de missão</span>`;
  $('result-next').innerHTML = `${!outcome.success ? 'Recomeçar fase' : mode === 'campaign' && !campaignDone ? 'Próxima missão' : 'Jogar novamente'} <span>${outcome.success ? '➜' : '↻'}</span>`;
@@ -135,16 +148,16 @@ function pauseGame() { if (game?.getSnapshot()?.mode === 'playing') { pauseCause
 function resume() { if ($('pause-dialog').open) $('pause-dialog').close(); pauseCause = null; game?.pause(false); if ($('interaction-dialog').open && game?.getSnapshot()?.activeTarget?.type === 'dynamic') { $('dynamic-canvas').focus(); startIEDDraw(); } else if (!$('interaction-dialog').open) $('game-canvas').focus(); }
 function help() { if(game?.getSnapshot()?.mode === 'playing') {pauseCause = 'help';game.pause(true);} showDialog('help-dialog'); }
 $('help-dialog').addEventListener('close', () => {if(pauseCause === 'help') { pauseCause = null;game?.pause(false); }});
-function beep(frequency) { if (!soundEnabled || !audio) return; try { const osc=audio.createOscillator(), gain=audio.createGain();osc.type='sine';osc.frequency.value=frequency;gain.gain.setValueAtTime(.045,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.12);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+.13); } catch {} }
+
 
 const toolNames = ['Jato d’água','Escova','Neutralizador','Pintura'], toolIcons = ['water','brush','neutral','paint'];
-const taps = [ ['Prontidão CCM','Verificar a prontidão do sistema para a atividade.'], ['Verificação em campo','Realizar a verificação com a equipe responsável.'], ['Documentação e aprovação','TAP aprovada (FIC concluída).'] ];
 $('tool-grid').innerHTML = toolNames.map((name,i)=>`<button class="tool-button" data-tool="${i}"><em>${i+1}</em>${icon(toolIcons[i])}<span>${name}</span></button>`).join('');
-$('tap-options').innerHTML = taps.map(([name,desc],i)=>`<button class="tap-option" data-tap="${i}"><span>${i+1}</span><span>${name}<small>${desc}</small></span></button>`).join('');
 function interaction({type,target,state}) {
  dragging = false;
- $('repair-content').hidden = type !== 'repair'; $('tap-content').hidden = type !== 'tap'; $('dynamic-content').hidden = type !== 'dynamic';
+ $('repair-content').hidden = type !== 'repair'; $('dynamic-content').hidden = type !== 'dynamic'; $('preop-content').hidden = type !== 'preop';
  $('interaction-dialog').classList.toggle('dynamic-dialog', type === 'dynamic');
+ $('interaction-dialog').classList.toggle('preop-dialog', type === 'preop');
+ if (type === 'preop') { preopUI.open(target,state); updateInteraction(state); showDialog('interaction-dialog'); return; }
  if (type === 'dynamic') {
   $('interaction-eyebrow').textContent = `IED / CONJUNTO ${target.index + 1} DE 3`;
   $('interaction-title').textContent = target.label;
@@ -157,6 +170,7 @@ function interaction({type,target,state}) {
  updateInteraction(state); showDialog('interaction-dialog');
 }
 function updateInteraction(s) {
+ if (s.activeTarget.type === 'preop') { preopUI.updatePanel(s); $('interaction-time').textContent = `${Math.ceil(s.timeLeft)}s restantes`; $('interaction-status').textContent = s.feedback?.text || ''; return; }
  const target = (s.activeTarget.type === 'repair' ? s.rust : s.activeTarget.type === 'dynamic' ? s.dynamic.machines : s.stations).find(t=>t.id===s.activeTarget.id); if (!target) return;
  $('interaction-time').textContent = `${Math.ceil(s.timeLeft)}s restantes`;
  const status = s.feedback?.text || ''; if ($('interaction-status').textContent !== status) $('interaction-status').textContent = status;
@@ -172,7 +186,7 @@ function updateInteraction(s) {
   $('paint-art').style.opacity = target.step === 3 ? target.progress : 0;
   $('work-area').classList.toggle('working',s.selectedTool !== null);
   $('tool-cursor').innerHTML = s.selectedTool === null ? '' : icon(toolIcons[s.selectedTool]);
- } else document.querySelectorAll('[data-tap]').forEach(btn=>{const n=Number(btn.dataset.tap);btn.classList.toggle('done',n<target.step);btn.disabled=n<target.step;btn.firstElementChild.textContent=n<target.step?'✓':n+1;});
+ }
 }
 let iedAnimation = 0;
 function stopIEDDraw() { if (iedAnimation) cancelAnimationFrame(iedAnimation); iedAnimation = 0; }
@@ -223,7 +237,6 @@ const release = ()=>{dragging=false;lastPoint=null;};
 area.addEventListener('pointerup',release);area.addEventListener('pointercancel',release);area.addEventListener('lostpointercapture',release);
 area.addEventListener('pointerleave',()=>{$('tool-cursor').style.display='none';});
 $('tool-grid').addEventListener('click',e=>{const btn=e.target.closest('[data-tool]');if(btn) game?.chooseTool(Number(btn.dataset.tool));});
-$('tap-options').addEventListener('click',e=>{const btn=e.target.closest('[data-tap]');if(btn) game?.chooseTap(Number(btn.dataset.tap));});
 $('interaction-close').onclick=()=>game?.closeInteraction();
 $('interaction-dialog').addEventListener('cancel',e=>{e.preventDefault();game?.closeInteraction();});
 $('pause-dialog').addEventListener('cancel',e=>{e.preventDefault();resume();});
@@ -240,7 +253,12 @@ $('pause-home').onclick=goHome;$('result-home').onclick=goHome;
 $('resume-game').onclick=resume;$('restart-game').onclick=()=>start(activeStage);
 $('result-next').onclick=()=>{if(result.success && mode==='campaign' && !sequence.every(id=>save.completed.includes(id))) {goHome();brief(nextCampaign());} else start(activeStage);};
 $('reset-progress').onclick=()=>showDialog('reset-dialog');$('confirm-reset').onclick=()=>{save={completed:[],best:{}};persist();$('reset-dialog').close();renderMenu();};
-$('sound-toggle').onclick=async()=>{soundEnabled=!soundEnabled;try{if(soundEnabled){const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)throw new Error('Audio unavailable');audio ||=new Audio();await audio.resume();beep(440);}}catch{soundEnabled=false;}$('sound-toggle').style.background=soundEnabled?'#c6df90':'';$('sound-toggle').setAttribute('aria-label',soundEnabled?'Desativar sons':'Ativar sons');$('sound-toggle').title=soundEnabled?'Desativar sons':'Ativar sons';};
+function syncAudioButton() { const enabled = audio.enabled; $('sound-toggle').style.background = enabled ? '#c6df90' : ''; $('sound-toggle').setAttribute('aria-pressed', enabled); $('sound-toggle').setAttribute('aria-label', enabled ? 'Desativar música e efeitos' : 'Ativar música e efeitos'); $('sound-toggle').title = enabled ? 'Desativar música e efeitos' : 'Ativar música e efeitos'; $('sound-toggle').textContent = enabled ? '♫' : '♪'; }
+$('sound-toggle').onclick = async () => { soundWanted = !audio.enabled; await audio.setEnabled(soundWanted); try { localStorage.setItem('buzios-audio', soundWanted ? 'on' : 'off'); } catch {} syncAudioButton(); if (soundWanted && !audio.enabled) $('game-feedback').textContent = 'Som indisponível neste navegador. A partida continua normalmente.'; };
+$('sound-volume').value = Math.round(audio.volume * 100);
+$('sound-volume').addEventListener('input', event => { audio.setVolume(Number(event.target.value)/100); try { localStorage.setItem('buzios-volume', String(audio.volume)); } catch {} });
+syncAudioButton();
+window.addEventListener('pagehide', () => audio.stop());
 $('fullscreen').onclick=async()=>{try{if(!document.fullscreenElement)await $('game-screen').requestFullscreen();else await document.exitFullscreen();}catch{$('game-feedback').textContent='Tela cheia indisponível neste navegador. Use o zoom do navegador para ampliar.';}};
 window.addEventListener('keydown',e=>{if(e.code==='Escape' && activeStage && !modalOpen()){e.preventDefault();pauseGame();}});
 for(const button of document.querySelectorAll('[data-key]')){

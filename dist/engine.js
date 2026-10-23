@@ -8,7 +8,7 @@ const STAGES = {
   sms: { label: 'SMS · Olho vivo no convés', objective: 'Registre 5 desvios antes que os trabalhadores os corrijam.', limit: null },
   ieei: { label: 'IEEI · Operação anticorrosão', objective: 'Trate os 3 pontos de corrosão em menos de 60 segundos.', limit: RULES.repairSeconds },
   preop: { label: 'Pré-Op / P-83 · Prontos para a TAP', objective: 'Conclua a preparação dos 3 sistemas em menos de 75 segundos.', limit: RULES.tapSeconds },
-  pspo: { label: 'PSPO · A missão do café', objective: 'Salte as mesas, evite os formulários e pegue um café na copa.', limit: null },
+  pspo: { label: 'PSPO - Fuja dos forms de viagem!', objective: 'Salte as mesas, evite os formulários e pegue um café na copa.', limit: null },
 };
 const RISK_LABELS = { glasses: 'Sem óculos de proteção', helmet: 'Sem capacete', hearing: 'Sem protetor auricular' };
 const TOOL_LABELS = ['Jato d’água', 'Escova', 'Neutralizador', 'Pintura'];

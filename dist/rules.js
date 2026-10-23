@@ -12,6 +12,12 @@ export const RULES = Object.freeze({
   officeMaxHits: 3,
   officeInvulnerabilitySeconds: 1.2,
   officeWarningSeconds: 0.75,
+  dynamicSeconds: 90,
+  dynamicAlignmentHits: 3,
+  dynamicAlignmentPenalty: 3,
+  dynamicSyncPenalty: 2,
+  dynamicAlignmentCooldown: 0.55,
+  dynamicStableSeconds: 4,
 });
 
 export function clamp(value, minimum, maximum) {
@@ -79,5 +85,29 @@ export function officeHitOutcome(hits, elapsed, invulnerableUntil) {
     invulnerableUntil: elapsed + RULES.officeInvulnerabilitySeconds,
     damaged: true,
     failed: nextHits >= RULES.officeMaxHits,
+  };
+}
+
+export function angleDistance(angleA, angleB) {
+  const circle = Math.PI * 2;
+  const difference = ((angleA - angleB) % circle + circle) % circle;
+  return Math.min(difference, circle - difference);
+}
+
+export function alignmentMatches(angleA, angleB, tolerance) {
+  return angleDistance(angleA, angleB) <= tolerance + 1e-9;
+}
+
+export function dynamicSyncStep(machine, input, dt) {
+  const controlTime = machine.controlTime + dt;
+  const sign = machine.index === 1 ? -1 : 1;
+  const drift = sign * (0.30 + machine.index * 0.05) + 0.12 * Math.sin(controlTime * 1.3 + machine.index * 1.2);
+  const needle = clamp(machine.needle + (drift + clamp(input, -1, 1) * (0.95 + machine.index * 0.1)) * dt, -1, 1);
+  const inside = Math.abs(needle) <= machine.band;
+  return {
+    needle,
+    controlTime,
+    stableTime: inside ? machine.stableTime + dt : 0,
+    inside,
   };
 }

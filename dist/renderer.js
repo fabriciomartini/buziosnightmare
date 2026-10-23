@@ -1,5 +1,6 @@
 // Original vector artwork. Everything is drawn locally; no image downloads required.
 import { drawOffice, drawOfficePortrait } from './office-renderer.js';
+import { drawIEDScene } from './ied-renderer.js';
 const INK = '#203f42';
 const C = { ink:INK, cream:'#fff4ce', teal:'#3a9d96', tealDark:'#28746f', mint:'#a8d4aa', orange:'#ef923c', yellow:'#f4c759', rust:'#b84f32' };
 
@@ -94,8 +95,11 @@ function character(c,x,y,opts={}){
   // Arms are outside the body and sleeves, for a clear carrying pose.
   path(c,[[-21,-54],[-30,-33],[-22,-27],[-13,-47]],opts.shirt||'#ed9443',INK,3);ellipse(c,-24,-29,6,6,'#e8ad73',INK,2);
   path(c,[[21,-54],[29,-35],[22,-29],[14,-46]],opts.shirt||'#ed9443',INK,3);ellipse(c,24,-30,6,6,'#e8ad73',INK,2);
-  if(opts.player&&opts.role!=='ieei')clipboard(c,28,-38);
+  if(opts.player&&opts.role!=='ieei'&&opts.role!=='ied')clipboard(c,28,-38);
   if(opts.role==='ieei'&&opts.player){line(c,26,-31,39,-57,'#8d6440',6);rr(c,31,-70,21,19,3,'#c2cbbb',INK,2);for(let i=0;i<4;i++)line(c,34+i*5,-68,34+i*5,-60,'#656e5d',2);}
+  if(opts.role==='ied'){
+    c.save();c.translate(27,-41);c.rotate(.1);rr(c,-11,-18,25,36,4,'#446b6c',INK,2);rr(c,-7,-13,17,19,2,'#b9d790',INK,1);path(c,[[-5,-2],[-2,-5],[1,1],[4,-8],[7,-3]],null,'#376c45',1.5,false);ellipse(c,1,12,2,2,'#eedb8d');c.beginPath();c.moveTo(9,-18);c.bezierCurveTo(25,-38,28,-7,32,-22);c.strokeStyle=INK;c.lineWidth=2;c.stroke();c.restore();
+  }
   ellipse(c,-24,-77,6,9,'#e9ae75',INK,2);ellipse(c,24,-77,6,9,'#e9ae75',INK,2);ellipse(c,0,-79,25,26,'#f0bc87',INK,3);
   // Distinct hair, even when a hard hat is deliberately absent.
   if(!opts.helmet){path(c,[[-23,-89],[-24,-98],[-17,-100],[-15,-106],[-6,-101],[0,-109],[6,-102],[17,-105],[22,-97],[25,-89]],'#594b37',INK,2);}
@@ -178,13 +182,14 @@ export function drawGame(c,s,dt=0){
   if(!s)return;c.save();c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,1200,600);c.lineCap='round';c.lineJoin='round';
   distant(c,s.camera||0,s.elapsed||0);backgroundIndustry(c,s);deck(c,s);
   c.save();c.translate(-(s.camera||0),0);
-  sign(c,130,421,'P–83',s.stageId==='sms'?'OLHO VIVO NA SEGURANÇA':s.stageId==='ieei'?'MISSÃO CONTRA A CORROSÃO':'PRONTOS PARA A PRÓXIMA ETAPA');
+  sign(c,130,421,'P–83',s.stageId==='sms'?'OLHO VIVO NA SEGURANÇA':s.stageId==='ieei'?'MISSÃO CONTRA A CORROSÃO':s.stageId==='ied'?'SEGURA ESSA VIBRAÇÃO!':'PRONTOS PARA A PRÓXIMA ETAPA');
   // Direction markers anchor the side-scrolling journey.
   for(let x=900;x<(s.worldWidth||3200);x+=850){rr(c,x,430,64,35,5,'#408f83',INK,2);text(c,'→',x+32,448,32,'#e8e5b4');}
   for(const r of s.rust||[])rustPoint(c,r,s);
   (s.stations||[]).forEach((p,i)=>station(c,p,i,s));c.restore();
+  if(s.stageId==='ied')drawIEDScene(c,s);
   workers(c,s);
-  if(s.player){c.save();c.translate(-(s.camera||0),0);const p=s.player;character(c,p.x,p.y,{time:s.elapsed||0,walking:p.walking,facing:p.facing,player:true,female:s.stageId==='sms',role:s.stageId,helmet:true,glasses:true,hat:s.stageId==='sms'?'#fff1c4':s.stageId==='ieei'?'#badaac':'#fff0bd',shirt:s.stageId==='sms'?'#3e9e92':s.stageId==='ieei'?'#70a88a':'#e89a48'});c.restore();}
+  if(s.player){c.save();c.translate(-(s.camera||0),0);const p=s.player;character(c,p.x,p.y,{time:s.elapsed||0,walking:p.walking,facing:p.facing,player:true,female:s.stageId==='sms',role:s.stageId,helmet:true,glasses:true,hearing:s.stageId==='ied',hat:s.stageId==='sms'?'#fff1c4':s.stageId==='ieei'?'#badaac':'#fff0bd',shirt:s.stageId==='sms'?'#3e9e92':s.stageId==='ieei'?'#70a88a':s.stageId==='ied'?'#739ba5':'#e89a48'});c.restore();}
   c.save();c.translate(-(s.camera||0),0);
   for(const p of s.particles||[]){c.globalAlpha=Math.min(1,Math.max(0,p.life/(p.maxLife||1)));ellipse(c,p.x,p.y,p.size||3,p.size||3,p.color||'#f1d270');}
   c.restore();
@@ -194,5 +199,5 @@ export function drawGame(c,s,dt=0){
 
 export function drawPortrait(c,who='sms',size=128){
   if(who==='pspo'){drawOfficePortrait(c,size);return;}
-  c.save();c.clearRect(0,0,size,size);ellipse(c,size/2,size/2,size*.46,size*.46,who==='sms'?'#d5e6b0':who==='ieei'?'#f5d487':'#b9dad0');c.translate(size/2,size*.96);c.scale(size/128,size/128);character(c,0,0,{time:0,player:false,female:who==='sms',role:who,helmet:true,glasses:true,hat:who==='ieei'?'#bad9a6':'#fff1be',shirt:who==='sms'?'#3e9e92':who==='ieei'?'#75a98a':'#e89a48',scale:1.03});c.restore();
+  c.save();c.clearRect(0,0,size,size);ellipse(c,size/2,size/2,size*.46,size*.46,who==='sms'?'#d5e6b0':who==='ieei'?'#f5d487':'#b9dad0');c.translate(size/2,size*.96);c.scale(size/128,size/128);character(c,0,0,{time:0,player:false,female:who==='sms',role:who,helmet:true,glasses:true,hearing:who==='ied',hat:who==='ieei'?'#bad9a6':'#fff1be',shirt:who==='sms'?'#3e9e92':who==='ieei'?'#75a98a':who==='ied'?'#739ba5':'#e89a48',scale:1.03});c.restore();
 }

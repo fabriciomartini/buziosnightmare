@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../dist/engine.js';
-import { observationOutcome, treatmentOutcome, tapOutcome, deadlineExpired } from '../dist/rules.js';
+import { observationOutcome, treatmentOutcome, tapOutcome, deadlineExpired, alignmentMatches, angleDistance, dynamicSyncStep } from '../dist/rules.js';
 
 /** Browser API stand-ins; the real engine, rules and renderer run in these tests. */
 function harness(t) {
@@ -544,4 +544,201 @@ test('PSPO: the full corridor is beatable using only normal movement, jumps, duc
   assert.ok(jumps >= 7);
   assert.deepEqual([...origins].sort(), ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'].sort());
   assert.equal(s.office.coffee.collected, true);
+});
+
+function finishAlignmentWithControls(h) {
+  const machine = h.game.getTarget();
+  for (let frame = 0; frame < 1800 && machine.phase === 'align' && h.game.state.mode === 'playing'; frame++) {
+    if (machine.alignmentArmed && h.game.state.elapsed >= machine.cooldownUntil && alignmentMatches(machine.angleA, machine.angleB, machine.tolerance)) h.game.alignMachine();
+    h.game.update(1 / 120);
+  }
+  assert.equal(machine.phase, 'sync');
+  return machine;
+}
+
+function keepNeedleCentered(h, maxFrames = 800) {
+  const machine = h.game.getTarget();
+  for (let frame = 0; frame < maxFrames && machine.phase === 'sync' && h.game.state.mode === 'playing'; frame++) {
+    h.game.setControl('ArrowLeft', machine.needle > 0.06);
+    h.game.setControl('ArrowRight', machine.needle < -0.06);
+    h.game.update(1 / 120);
+  }
+  h.game.setControl('ArrowLeft', false); h.game.setControl('ArrowRight', false);
+  return machine;
+}
+
+test('IED: circular alignment accepts the exact boundary and wraps across zero', () => {
+  assert.ok(alignmentMatches(0.2, 0.7, 0.5));
+  assert.equal(alignmentMatches(0.2, 0.7001, 0.5), false);
+  assert.ok(alignmentMatches(Math.PI * 2 - 0.1, 0.1, 0.2));
+  assert.ok(Math.abs(angleDistance(-0.1, 0.1) - 0.2) < 1e-9);
+  const m = { index: 0, needle: 0, band: 0.3, stableTime: 3.99, controlTime: 0 };
+  const inside = dynamicSyncStep(m, 0, 0.01);
+  assert.ok(inside.inside);
+  assert.ok(Math.abs(inside.stableTime - 4) < 1e-9);
+  const outside = dynamicSyncStep({ ...m, needle: 0.31 }, 0, 0.01);
+  assert.equal(outside.inside, false);
+  assert.equal(outside.stableTime, 0);
+});
+
+test('IED: proximity and sequence are required, and closed barriers block even jumps', t => {
+  const h = harness(t);
+  h.game.start('ied');
+  const s = h.game.state, [first, second] = s.dynamic.machines;
+  assert.equal(s.timeLeft, 90);
+  h.click(first.x, first.y);
+  assert.equal(s.activeTarget, null);
+  assert.match(s.feedback.text, /perto/);
+  s.player.x = second.x - 70;
+  h.click(second.x, second.y);
+  assert.equal(s.activeTarget, null);
+  assert.match(s.feedback.text, /ordem/);
+  const gate = s.dynamic.barriers[0];
+  s.player.x = gate.x - 40; s.player.y = 500;
+  h.game.setControl('ArrowRight', true);
+  for (let i = 0; i < 30; i++) h.game.update(1 / 120);
+  assert.equal(s.player.x, gate.x - 18);
+  h.game.setControl('Space', true);
+  for (let i = 0; i < 100; i++) h.game.update(1 / 120);
+  assert.equal(s.player.x, gate.x - 18, 'a closed integration gate cannot be jumped over');
+  assert.equal(s.dynamic.completed, 0);
+});
+
+test('IED: bad alignment costs three seconds, cooldown prevents spam, and three fresh windows unlock sync', t => {
+  const h = harness(t);
+  h.game.start('ied');
+  h.approach(h.game.state.dynamic.machines[0]);
+  const s = h.game.state, m = h.game.getTarget();
+  const oldVibration = m.vibration;
+  assert.equal(h.game.alignMachine(), false);
+  assert.equal(s.timeLeft, 87);
+  assert.equal(m.faults, 1);
+  assert.ok(m.vibration > oldVibration);
+  for (let i = 0; i < 10; i++) h.game.alignMachine();
+  assert.equal(m.faults, 1);
+  finishAlignmentWithControls(h);
+  assert.equal(m.alignmentHits, 3);
+  assert.equal(m.faults, 1);
+  assert.equal(s.correct, 0, 'alignment alone does not finish a machine');
+});
+
+test('IED: Space is routed once without moving the character, while buttons retain native keyboard activation', t => {
+  const h = harness(t);
+  h.game.start('ied'); h.approach(h.game.state.dynamic.machines[0]);
+  const s = h.game.state, m = h.game.getTarget();
+  const button = { closest: selector => selector === 'button' ? {} : null };
+  const native = h.key('Space', { target: button });
+  assert.equal(native.prevented, undefined);
+  assert.equal(m.faults, 0);
+  const first = h.key('Space');
+  assert.equal(first.prevented, true);
+  assert.equal(m.faults, 1);
+  h.key('Space', { repeat: true });
+  assert.equal(m.faults, 1);
+  h.key('ArrowRight');
+  const x = s.player.x;
+  h.game.update(0.1);
+  assert.equal(s.player.x, x);
+  assert.equal(h.game.jumpQueued, false);
+});
+
+test('IED: sync requires four continuous seconds, excursions reset progress and penalties are paced', t => {
+  const h = harness(t);
+  h.game.start('ied'); h.approach(h.game.state.dynamic.machines[0]);
+  const s = h.game.state, m = finishAlignmentWithControls(h);
+  // Center through actual directional controls and earn less than four seconds.
+  for (let i = 0; i < 300; i++) {
+    h.game.setControl('ArrowLeft', m.needle > 0.06);
+    h.game.setControl('ArrowRight', m.needle < -0.06);
+    h.game.update(1 / 120);
+  }
+  assert.ok(m.stableTime > 1 && m.stableTime < 4);
+  h.game.setControl('ArrowLeft', false); h.game.setControl('ArrowRight', true);
+  while (Math.abs(m.needle) <= m.band) h.game.update(1 / 120);
+  assert.equal(m.stableTime, 0);
+  const faults = m.faults;
+  const before = s.elapsed;
+  h.game.update(0.1);
+  assert.equal(m.faults, faults, 'staying outside does not charge every frame');
+  assert.ok(s.elapsed - before < 0.11);
+  h.game.setControl('ArrowRight', false);
+  keepNeedleCentered(h);
+  assert.equal(m.phase, 'done');
+  assert.equal(s.correct, 1);
+  assert.equal(s.dynamic.barriers[0].open, true);
+  assert.equal(s.platforms[0].y, s.platforms[0].baseY);
+  assert.equal(s.activeTarget, null);
+});
+
+test('IED: closing resets continuous stability; pause freezes the challenge; restarting clears progress', t => {
+  const h = harness(t);
+  h.game.start('ied'); h.approach(h.game.state.dynamic.machines[0]);
+  const s = h.game.state, m = finishAlignmentWithControls(h);
+  for (let i = 0; i < 180; i++) {
+    h.game.setControl('ArrowLeft', m.needle > 0.06);
+    h.game.setControl('ArrowRight', m.needle < -0.06);
+    h.game.update(1 / 120);
+  }
+  assert.ok(m.stableTime > 0);
+  const elapsed = s.elapsed, needle = m.needle, stable = m.stableTime;
+  h.game.pause(true); h.game.update(10);
+  assert.equal(s.elapsed, elapsed); assert.equal(m.needle, needle); assert.equal(m.stableTime, stable);
+  assert.equal(h.game.keys.size, 0);
+  h.game.pause(false); h.game.closeInteraction();
+  assert.equal(m.stableTime, 0);
+  assert.equal(h.game.keys.size, 0);
+  h.game.update(1);
+  assert.ok(s.elapsed > elapsed, 'clock keeps running while interaction is dismissed');
+  h.game.start('ied');
+  assert.equal(h.game.state.timeLeft, 90);
+  assert.equal(h.game.state.dynamic.completed, 0);
+  assert.ok(h.game.state.dynamic.machines.every(machine => machine.phase === 'align' && !machine.alignmentHits && !machine.faults));
+  assert.ok(h.game.state.dynamic.barriers.every(gate => !gate.open));
+});
+
+test('IED: the 90-second deadline remains active inside the challenge and is exact', t => {
+  const h = harness(t);
+  h.game.start('ied'); h.approach(h.game.state.dynamic.machines[0]);
+  h.game.update(89.999);
+  assert.equal(h.game.state.mode, 'playing');
+  h.game.update(0.001);
+  assert.equal(h.game.state.mode, 'ended');
+  assert.equal(h.game.state.timeLeft, 0);
+  assert.equal(h.endings[0].success, false);
+});
+
+test('IED: all three machines and moving platforms are beatable in under 90 seconds using only normal controls', t => {
+  const h = harness(t);
+  h.game.start('ied');
+  const s = h.game.state;
+  let jumps = 0;
+  const movedPlatforms = new Set();
+  for (let frame = 0; frame < 12000 && s.mode === 'playing'; frame++) {
+    const target = s.dynamic.machines[s.dynamic.completed];
+    if (s.activeTarget) {
+      if (target.phase === 'align') {
+        if (target.alignmentArmed && s.elapsed >= target.cooldownUntil && alignmentMatches(target.angleA, target.angleB, target.tolerance)) h.game.setControl('Space', true);
+      } else {
+        h.game.setControl('ArrowLeft', target.needle > 0.06);
+        h.game.setControl('ArrowRight', target.needle < -0.06);
+      }
+    } else {
+      h.game.setControl('ArrowRight', true);
+      const obstacle = s.platforms.find(platform => platform.x > s.player.x && platform.x - (s.player.x + 18) < 55);
+      if (obstacle && s.player.grounded) { h.game.setControl('Space', true); jumps++; }
+      if (Math.abs(s.player.x - target.x) <= 110 && Math.abs(s.player.y - target.y) <= 145) h.click(target.x, target.y);
+    }
+    h.game.update(1 / 120);
+    h.game.setControl('Space', false);
+    s.platforms.forEach((platform, index) => { if (Math.abs(platform.y - platform.baseY) > 1) movedPlatforms.add(index); });
+  }
+  assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason || `stuck at ${s.player.x}`);
+  assert.ok(s.elapsed < 90);
+  assert.equal(s.dynamic.completed, 3);
+  assert.equal(s.dynamic.totalFaults, 0);
+  assert.ok(jumps >= 3, 'the route uses actual jumps over all catwalk obstacles');
+  assert.equal(movedPlatforms.size, 3, 'all platforms were moving before integration');
+  assert.ok(s.dynamic.barriers.every(gate => gate.open));
+  assert.ok(s.platforms.every(platform => platform.y === platform.baseY));
+  assert.ok(s.dynamic.machines.every(machine => machine.phase === 'done' && machine.alignmentHits === 3 && machine.stableTime === 4));
 });

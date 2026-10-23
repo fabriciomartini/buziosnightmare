@@ -1,5 +1,5 @@
 import { drawGame } from './renderer.js';
-import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, tapOutcome, deadlineExpired, rectanglesOverlap, officeHitOutcome } from './rules.js';
+import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, tapOutcome, deadlineExpired, rectanglesOverlap, officeHitOutcome, angleDistance, alignmentMatches, dynamicSyncStep } from './rules.js';
 
 const WIDTH = 1200;
 const HEIGHT = 600;
@@ -9,6 +9,7 @@ const STAGES = {
   ieei: { label: 'IEEI · Operação anticorrosão', objective: 'Trate os 3 pontos de corrosão em menos de 60 segundos.', limit: RULES.repairSeconds },
   preop: { label: 'Pré-Op / P-83 · Prontos para a TAP', objective: 'Conclua a preparação dos 3 sistemas em menos de 75 segundos.', limit: RULES.tapSeconds },
   pspo: { label: 'PSPO - Fuja dos forms de viagem!', objective: 'Salte as mesas, evite os formulários e pegue um café na copa.', limit: null },
+  ied: { label: 'IED · No ritmo das máquinas', objective: 'Alinhe e sincronize os três conjuntos para estabilizar a P-83.', limit: RULES.dynamicSeconds },
 };
 const RISK_LABELS = { glasses: 'Sem óculos de proteção', helmet: 'Sem capacete', hearing: 'Sem protetor auricular' };
 const TOOL_LABELS = ['Jato d’água', 'Escova', 'Neutralizador', 'Pintura'];
@@ -26,6 +27,31 @@ const OFFICE_DESKS = [
 const OFFICE_FORM_SLOTS = [180, 820, 1460, 2100, 2740, 3380, 4020, 4660];
 const OFFICE_FORM_HEIGHTS = [450, 375, 420, 450, 375, 420, 450, 420];
 const OFFICE_FORM_ORIGINS = ['IED', 'IEEI', 'SMS', 'Pré-Op/P-83'];
+const DYNAMIC_LABELS = ['Motor e bomba', 'Compressor', 'Grande conjunto final'];
+
+function makeDynamic() {
+  return {
+    completed: 0,
+    totalFaults: 0,
+    machines: [500, 1540, 2660].map((x, index) => ({
+      id: `machine-${index + 1}`, label: DYNAMIC_LABELS[index], x, y: 430, index,
+      phase: 'align', alignmentHits: 0, angleA: 0, angleB: 1.4 + index * 0.35,
+      tolerance: [0.50, 0.42, 0.35][index], alignmentArmed: true, cooldownUntil: 0,
+      needle: index === 1 ? -0.46 : 0.46, band: [0.30, 0.26, 0.23][index],
+      stableTime: 0, requiredStableTime: RULES.dynamicStableSeconds,
+      faults: 0, vibration: 0.8 + index * 0.2, controlTime: 0, nextFaultAt: 0,
+    })),
+    barriers: [950, 2050, 3070].map((x, index) => ({ x, y: 310, w: 52, h: 190, machineId: `machine-${index + 1}`, open: false })),
+  };
+}
+
+function makeDynamicPlatforms() {
+  return [
+    { x: 310, y: 430, w: 145, h: 70, baseY: 430, amplitude: 8, machineId: 'machine-1' },
+    { x: 1170, y: 425, w: 150, h: 75, baseY: 425, amplitude: 10, machineId: 'machine-2' },
+    { x: 2300, y: 430, w: 160, h: 70, baseY: 430, amplitude: 12, machineId: 'machine-3' },
+  ];
+}
 
 function makeWorkers() {
   const hazards = [440, 920, 1310, 1495, 1690, 1890, 2085, 2280, 2470, 2660, 2880, 3160];
@@ -50,13 +76,14 @@ function freshState(stageId) {
     camera: 0,
     elapsed: 0,
     player: { x: 165, y: GROUND, vx: 0, vy: 0, facing: 1, walking: false, grounded: true, climbing: false, ducking: false },
-    platforms: stageId === 'pspo' ? OFFICE_DESKS.map(desk => ({ ...desk })) : [
+    platforms: stageId === 'pspo' ? OFFICE_DESKS.map(desk => ({ ...desk })) : stageId === 'ied' ? makeDynamicPlatforms() : [
       { x: 730, y: 430, w: 135, h: 70 },
       { x: 1320, y: 350, w: 315, h: 22 },
       { x: 2210, y: 400, w: 245, h: 22 },
       { x: 2930, y: 435, w: 125, h: 65 },
     ],
-    ladders: stageId === 'pspo' ? [] : [{ x: 1365, y: 350, w: 48, h: 150 }, { x: 2260, y: 400, w: 48, h: 100 }],
+    ladders: ['pspo', 'ied'].includes(stageId) ? [] : [{ x: 1365, y: 350, w: 48, h: 150 }, { x: 2260, y: 400, w: 48, h: 100 }],
+    dynamic: stageId === 'ied' ? makeDynamic() : null,
     office: stageId === 'pspo' ? {
       hits: 0, maxHits: RULES.officeMaxHits, invulnerableUntil: 0, progress: 0,
       forms: [], coffee: { x: 5370, y: 430, collected: false }, distance: 0,
@@ -125,7 +152,7 @@ export class Game {
     this.state.attempt = this.attempts[stageId] = (this.attempts[stageId] || 0) + 1;
     this.lastTime = null;
     this.lastUpdate = 0;
-    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
+    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : stageId === 'ied' ? 'Salte as passarelas, aproxime-se do primeiro conjunto e clique para integrar.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
     this.emit();
   }
 
@@ -144,6 +171,15 @@ export class Game {
   handleKeyDown(event) {
     if (!this.state || this.state.mode !== 'playing') return;
     if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.code === 'Space' && event.target?.closest?.('button')) return;
+    if (this.state.activeTarget?.type === 'dynamic') {
+      if (['Space', 'ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(event.code)) {
+        event.preventDefault();
+        if (event.code === 'Space') { if (!event.repeat) this.alignMachine(); }
+        else this.keys.add(event.code);
+      }
+      return;
+    }
     if (event.code === 'KeyE' && this.state.stageId === 'pspo') {
       event.preventDefault();
       if (!event.repeat) this.collectCoffee();
@@ -151,7 +187,6 @@ export class Game {
     }
     const accepted = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
     if (!accepted.includes(event.code)) return;
-    if (event.code === 'Space' && event.target?.closest?.('button')) return;
     event.preventDefault();
     if (this.state.activeTarget) return;
     this.keys.add(event.code);
@@ -162,6 +197,14 @@ export class Game {
 
   // Optional touch controls can call this without synthesizing browser events.
   setControl(code, pressed) {
+    if (this.state?.activeTarget?.type === 'dynamic') {
+      if (pressed && this.state.mode !== 'playing') return;
+      if (code === 'Space') { if (pressed) this.alignMachine(); return; }
+      if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(code)) {
+        if (pressed) this.keys.add(code); else this.keys.delete(code);
+      }
+      return;
+    }
     if (code === 'KeyE') { if (pressed) this.collectCoffee(); return; }
     if (pressed && this.state?.mode !== 'playing') return;
     if (pressed) {
@@ -179,6 +222,20 @@ export class Game {
     const s = this.state;
     if (!s || s.mode !== 'playing' || s.activeTarget || event.button > 0) return;
     const point = this.pointerPosition(event);
+    if (s.stageId === 'ied') {
+      const machine = s.dynamic.machines.find(m => Math.abs(point.x - m.x) <= 105 && point.y >= m.y - 110 && point.y <= m.y + 85);
+      if (!machine) return;
+      if (machine.phase === 'done') { this.message('Este conjunto já está integrado e estável.', 'success'); return; }
+      if (machine.index !== s.dynamic.completed) { this.message('Integre os conjuntos na ordem do percurso para liberar as passagens.', 'info'); return; }
+      if (!canReach(s.player, machine)) { this.message('Chegue mais perto do conjunto para iniciar a integração.', 'info'); return; }
+      s.activeTarget = { type: 'dynamic', id: machine.id };
+      this.keys.clear(); this.jumpQueued = false;
+      s.player.vx = 0; s.player.walking = false;
+      if (machine.phase === 'sync') { machine.stableTime = 0; machine.nextFaultAt = s.elapsed + 2; }
+      this.callbacks.onInteraction?.({ type: 'dynamic', target: machine, state: s });
+      this.emit();
+      return;
+    }
     if (s.stageId === 'pspo') {
       const coffee = s.office.coffee;
       if (Math.abs(point.x - coffee.x) <= 90 && point.y >= coffee.y - 120 && point.y <= coffee.y + 70) this.collectCoffee();
@@ -238,17 +295,55 @@ export class Game {
 
   closeInteraction() {
     if (!this.state) return;
+    const target = this.getTarget();
+    if (this.state.activeTarget?.type === 'dynamic' && target?.phase === 'sync') target.stableTime = 0;
     this.state.activeTarget = null;
     this.state.selectedTool = null;
     this.state.toolProgress = 0;
     this.keys.clear();
+    this.jumpQueued = false;
     this.emit();
   }
 
   getTarget() {
     const s = this.state;
     if (!s?.activeTarget) return null;
-    return (s.activeTarget.type === 'repair' ? s.rust : s.stations).find(t => t.id === s.activeTarget.id) || null;
+    return (s.activeTarget.type === 'dynamic' ? s.dynamic.machines : s.activeTarget.type === 'repair' ? s.rust : s.stations).find(t => t.id === s.activeTarget.id) || null;
+  }
+
+  dynamicPenalty(seconds, message) {
+    const s = this.state;
+    s.elapsed += seconds;
+    s.timeLeft = Math.max(0, RULES.dynamicSeconds - s.elapsed);
+    this.message(message, 'error');
+    if (deadlineExpired(s.elapsed, RULES.dynamicSeconds)) this.end(false, 'O prazo de 90 segundos terminou antes da integração dos três conjuntos.');
+  }
+
+  alignMachine() {
+    const s = this.state, machine = this.getTarget();
+    if (!s || s.mode !== 'playing' || s.activeTarget?.type !== 'dynamic' || machine?.phase !== 'align') return false;
+    if (s.elapsed < machine.cooldownUntil || !machine.alignmentArmed) return false;
+    machine.cooldownUntil = s.elapsed + RULES.dynamicAlignmentCooldown;
+    if (!alignmentMatches(machine.angleA, machine.angleB, machine.tolerance)) {
+      machine.faults++; s.dynamic.totalFaults++;
+      machine.vibration = Math.min(2, machine.vibration + 0.45);
+      this.dynamicPenalty(RULES.dynamicAlignmentPenalty, 'Fora de alinhamento: −3 segundos. Espere as marcas se encontrarem.');
+      machine.cooldownUntil = s.elapsed + RULES.dynamicAlignmentCooldown;
+      return false;
+    }
+    machine.alignmentHits++;
+    machine.alignmentArmed = false;
+    this.message(`Alinhamento ${machine.alignmentHits}/3 confirmado!`, 'success');
+    if (machine.alignmentHits >= RULES.dynamicAlignmentHits) {
+      machine.phase = 'sync';
+      machine.stableTime = 0;
+      machine.controlTime = 0;
+      machine.nextFaultAt = s.elapsed + 2;
+      this.keys.clear(); this.jumpQueued = false;
+      this.message('Eixos alinhados! Use ← e → para manter a agulha na faixa verde por 4 segundos.', 'info', 5);
+    }
+    this.emit();
+    return true;
   }
 
   collectCoffee() {
@@ -347,6 +442,95 @@ export class Game {
     }
   }
 
+  updateDynamicWorld(dt) {
+    const s = this.state, p = s.player;
+    for (const machine of s.dynamic.machines) {
+      if (machine.phase !== 'done') {
+        machine.angleA = (machine.angleA + (1 + machine.index * 0.2) * dt) % (Math.PI * 2);
+        machine.angleB = (machine.angleB - (1.1 + machine.index * 0.25) * dt + Math.PI * 2) % (Math.PI * 2);
+        machine.vibration = Math.max(0.8 + machine.index * 0.2, machine.vibration - dt * 0.1);
+        if (!machine.alignmentArmed && angleDistance(machine.angleA, machine.angleB) > machine.tolerance * 1.35) machine.alignmentArmed = true;
+      }
+    }
+    for (const platform of s.platforms) {
+      const machine = s.dynamic.machines.find(m => m.id === platform.machineId);
+      const oldY = platform.y;
+      platform.y = machine.phase === 'done' ? platform.baseY : platform.baseY + Math.sin(s.elapsed * (2.3 + machine.index * 0.3) + machine.index) * platform.amplitude * machine.vibration;
+      platform.h = GROUND - platform.y;
+      if (p.grounded && Math.abs(p.y - oldY) < 2 && p.x + 18 > platform.x && p.x - 18 < platform.x + platform.w) p.y += platform.y - oldY;
+    }
+  }
+
+  updateDynamicPhysics(dt) {
+    const s = this.state, p = s.player;
+    const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
+    const right = this.keys.has('ArrowRight') || this.keys.has('KeyD');
+    p.ducking = false; p.climbing = false;
+    p.vx = s.activeTarget ? 0 : ((right ? 1 : 0) - (left ? 1 : 0)) * 290;
+    if (p.vx) p.facing = Math.sign(p.vx);
+    if (this.jumpQueued && p.grounded && !s.activeTarget) { p.vy = -560; p.grounded = false; }
+    this.jumpQueued = false;
+    const oldX = p.x, oldY = p.y;
+    p.vy += 1500 * dt;
+    let nextY = p.y + p.vy * dt;
+    let nextX = clamp(p.x + p.vx * dt, 40, s.worldWidth - 45);
+    const solids = [...s.platforms, ...s.dynamic.barriers.filter(barrier => !barrier.open)];
+    for (const solid of solids) {
+      if (nextY <= solid.y + 0.5 || nextY - 96 >= solid.y + solid.h) continue;
+      if (p.vx > 0 && oldX + 18 <= solid.x + 0.5 && nextX + 18 > solid.x) nextX = solid.x - 18;
+      if (p.vx < 0 && oldX - 18 >= solid.x + solid.w - 0.5 && nextX - 18 < solid.x + solid.w) nextX = solid.x + solid.w + 18;
+    }
+    p.x = nextX; p.grounded = false;
+    if (p.vy >= 0) for (const solid of solids) {
+      if (p.x + 18 > solid.x && p.x - 18 < solid.x + solid.w && oldY <= solid.y + 2 && nextY >= solid.y) {
+        nextY = solid.y; p.vy = 0; p.grounded = true;
+      }
+    }
+    if (nextY >= GROUND) { nextY = GROUND; p.vy = 0; p.grounded = true; }
+    p.y = nextY;
+    p.walking = Math.abs(p.x - oldX) > 0.01;
+    if (!p.walking) p.vx = 0;
+    s.camera = clamp(p.x - 390, 0, s.worldWidth - WIDTH);
+  }
+
+  updateDynamicChallenge(dt) {
+    const s = this.state, machine = this.getTarget();
+    if (s.activeTarget?.type !== 'dynamic' || machine?.phase !== 'sync') return;
+    const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
+    const right = this.keys.has('ArrowRight') || this.keys.has('KeyD');
+    const input = (right ? 1 : 0) - (left ? 1 : 0);
+    // Substeps keep continuous stability honest across slower rendering frames.
+    const count = Math.max(1, Math.ceil(dt / 0.02));
+    for (let i = 0; i < count; i++) {
+      const next = dynamicSyncStep(machine, input, dt / count);
+      machine.needle = next.needle; machine.controlTime = next.controlTime; machine.stableTime = next.stableTime;
+      if (!next.inside && s.elapsed >= machine.nextFaultAt) {
+        machine.faults++; s.dynamic.totalFaults++;
+        machine.vibration = Math.min(2, machine.vibration + 0.3);
+        this.dynamicPenalty(RULES.dynamicSyncPenalty, 'A agulha saiu da faixa: estabilidade reiniciada e −2 segundos. Corrija com ← e →.');
+        machine.nextFaultAt = s.elapsed + 2;
+        if (s.mode === 'ended') return;
+      }
+      if (machine.stableTime + 1e-9 >= machine.requiredStableTime) {
+        machine.stableTime = machine.requiredStableTime;
+        machine.phase = 'done'; machine.vibration = 0;
+        s.dynamic.completed++; s.correct++; s.completedCount = s.correct; s.score += 100;
+        const barrier = s.dynamic.barriers.find(b => b.machineId === machine.id);
+        if (barrier) barrier.open = true;
+        const platform = s.platforms.find(p => p.machineId === machine.id);
+        if (platform) {
+          if (s.player.grounded && Math.abs(s.player.y - platform.y) < 2 && s.player.x + 18 > platform.x && s.player.x - 18 < platform.x + platform.w) s.player.y += platform.baseY - platform.y;
+          platform.y = platform.baseY; platform.h = GROUND - platform.baseY;
+        }
+        this.burst(machine.x, machine.y - 60, '#b8e288');
+        this.message(`${machine.label} integrado. Passarela estável e passagem liberada!`, 'success');
+        this.closeInteraction();
+        if (s.dynamic.completed >= 3) this.end(true, 'Três conjuntos alinhados e sincronizados. A P-83 voltou ao ritmo certo!');
+        return;
+      }
+    }
+  }
+
   updateOfficePhysics(dt) {
     const s = this.state, p = s.player;
     const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
@@ -433,6 +617,7 @@ export class Game {
 
   updatePhysics(dt) {
     if (this.state.stageId === 'pspo') { this.updateOfficePhysics(dt); return; }
+    if (this.state.stageId === 'ied') { this.updateDynamicPhysics(dt); return; }
     const s = this.state;
     const p = s.player;
     const left = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
@@ -481,11 +666,16 @@ export class Game {
     if (limit !== null) {
       s.timeLeft = Math.max(0, limit - s.elapsed);
       if (deadlineExpired(s.elapsed, limit)) {
-        this.end(false, s.stageId === 'ieei' ? 'O minuto terminou. Os três pontos precisam estar completamente tratados.' : 'O prazo terminou antes da conclusão dos três sistemas.');
+        this.end(false, s.stageId === 'ieei' ? 'O minuto terminou. Os três pontos precisam estar completamente tratados.' : s.stageId === 'ied' ? 'O prazo de 90 segundos terminou antes da integração dos três conjuntos.' : 'O prazo terminou antes da conclusão dos três sistemas.');
         return;
       }
     }
+    if (s.stageId === 'ied') this.updateDynamicWorld(dt);
     this.updatePhysics(physicsDt);
+    if (s.stageId === 'ied') {
+      this.updateDynamicChallenge(dt);
+      if (s.mode === 'ended') return;
+    }
     if (s.stageId === 'pspo') {
       this.updateOffice(physicsDt);
       if (s.mode === 'ended') return;
@@ -520,7 +710,7 @@ export class Game {
     this.keys.clear();
     this.jumpQueued = false;
     this.emit();
-    this.callbacks.onEnd?.({ success, stageId: s.stageId, score: s.score, correct: s.correct, elapsed: s.elapsed, reason, ...(s.office ? { hits: s.office.hits, distance: s.office.distance } : {}) });
+    this.callbacks.onEnd?.({ success, stageId: s.stageId, score: s.score, correct: s.correct, elapsed: s.elapsed, reason, ...(s.office ? { hits: s.office.hits, distance: s.office.distance } : {}), ...(s.dynamic ? { faults: s.dynamic.totalFaults } : {}) });
   }
 
   emit() { if (this.state) this.callbacks.onUpdate?.(this.state); }

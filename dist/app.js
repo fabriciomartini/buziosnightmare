@@ -1,13 +1,14 @@
 import { Game } from './engine.js';
 import { drawGame, drawPortrait } from './renderer.js';
+import { drawIEDChallenge } from './ied-renderer.js';
 
 const $ = id => document.getElementById(id);
-const sequence = ['sms', 'ieei', 'pspo', 'preop'];
+const sequence = ['sms', 'ieei', 'ied', 'pspo', 'preop'];
 const STORAGE = 'buzios-nightmare-v1';
 const levels = {
   sms: { number: '01', department: 'SMS', title: 'Olho no desvio', person: 'Jaqueline', role: 'Segurança, Meio Ambiente e Saúde', short: 'Um olhar atento faz toda a diferença.', color: '#b6d477', objective: 'Registre 5 desvios', goal: 5, story: 'Jaqueline chegou ao convés. Alguns trabalhadores estão sem EPI, mas se ajeitam assim que percebem sua presença. Observe rápido e registre apenas desvios reais na prancheta de auditoria comportamental.', rules: ['Caminhe com as setas e clique nos trabalhadores com desvio.', 'Você tem 2 segundos antes que cada trabalhador corrija o EPI.', 'Registre 5 desvios. Cada acerto vale +1; falso registro vale −1. Placar negativo encerra a tentativa.'], meta: 'Sem limite geral de tempo · As oportunidades de observação são únicas por tentativa.' },
   ieei: { number: '02', department: 'IEEI', title: 'Ferrugem, aqui não!', person: 'José Roberto', role: 'Integração de Equipamentos Estáticos e Inspeção', short: 'A corrosão não tira folga. Você também não.', color: '#efc775', objective: 'Recupere 3 pontos', goal: 3, story: 'A maresia não deu trégua à P-83. José Roberto tem um minuto para encontrar e recuperar três pontos de corrosão espalhados pelo convés. Cada tratamento precisa acontecer na ordem certa.', rules: ['Aproxime-se do ponto enferrujado e clique nele.', 'Escolha: jato d’água → escova → neutralizador → pintura.', 'Segure e arraste sobre a área central até completar cada etapa. Recupere os 3 pontos em menos de 60 segundos.'], meta: '60 segundos · O cronômetro continua durante o tratamento. Sequência simplificada exclusivamente para a dinâmica do jogo.' },
-  ied: { number: '03', department: 'IED', title: 'Máquinas em movimento', short: 'Integração de Equipamentos Dinâmicos', color: '#c7d4c4', future: true },
+  ied: { number: '03', department: 'IED', title: 'Segura essa vibração!', person: 'Gerente do IED', role: 'Integração de Equipamentos Dinâmicos', short: 'Três máquinas. Um turno. Encontre o ritmo.', color: '#9fcebf', objective: 'Integre 3 conjuntos', goal: 3, story: 'O convés da P-83 está fora de compasso: bombas e compressores tremem e sacodem as passarelas. Atravesse a área, alinhe os eixos e estabilize a rotação de três conjuntos. Cada máquina integrada libera a próxima passagem. Vamos colocar essa turma na mesma rotação!', rules: ['Caminhe com ← →, pule com espaço e clique na máquina quando estiver perto.', 'Alinhe os eixos: aperte espaço ou Alinhar quando as marcas coincidirem. Acerte 3 vezes; cada erro custa 3 segundos.', 'Depois use ← → para manter o ponteiro na faixa verde durante 4 segundos seguidos. Integre os 3 conjuntos em menos de 90 segundos.'], meta: '90 segundos · O relógio continua nos desafios · Sair da faixa verde interrompe a estabilidade; desvios de rotação podem custar 2 segundos. Representação cartunesca de integração.' },
   pspo: { number: '04', department: 'PSPO', title: 'PSPO - Fuja dos forms de viagem!', person: 'Leonardo', role: 'Planejamento e Suporte para Operação', short: 'Entre você e o café: uma chuva de forms.', color: '#84bbc3', objective: 'Chegue à copa e pegue o café', goal: 1, story: '12º andar, Torre B do EDISEN. Leonardo só queria uma pausa, mas os formulários de viagens internacionais do IED, IEEI, SMS e Pré-Op/P-83 não param de chegar! Saia da baia, atravesse o escritório e conquiste aquele café.', rules: ['Corra com ← → e pule as mesas com espaço ou ↑.', 'Desvie dos formulários voadores. Use ↓ para se abaixar; o terceiro impacto encerra a tentativa.', 'Chegue à copa e pressione E ou clique na máquina automática para pegar o café.'], meta: '3 impactos e acabou · Sem limite de tempo · Cenário cartunesco inspirado em referências públicas do EDISEN; disposição interna fictícia.' },
   preop: { number: '05', department: 'Pré-Op / P-83', title: 'Prontos para a TAP', person: 'Equipe P-83', role: 'Pré-operação da P-83 · Fase proposta', short: 'Preparar. Verificar. Aprovar.', color: '#c2b9d9', objective: 'Prepare 3 sistemas', goal: 3, story: 'O próximo marco da P-83 está chegando. Percorra o convés e ajude a equipe a preparar os sistemas de óleo, gás e água para a TAP. Esta missão é uma proposta para a demonstração.', rules: ['Caminhe até os sistemas destacados e clique para abrir a missão.', 'Siga: prontidão CCM → verificação em campo → documentação e aprovação.', 'Conclua os 3 sistemas em menos de 75 segundos. Cada escolha fora de ordem custa 5 segundos.'], meta: '75 segundos · Proposta de roteiro · Marco final: TAP aprovada (FIC concluída). Interação lúdica simplificada.' }
 };
@@ -19,7 +20,7 @@ const nextCampaign = () => sequence.find(id => !save.completed.includes(id)) || 
 const unlocked = id => mode === 'free' || save.completed.includes(id) || sequence.indexOf(id) === 0 || sequence.slice(0, sequence.indexOf(id)).every(x => save.completed.includes(x));
 const modalOpen = () => [...document.querySelectorAll('dialog')].some(d => d.open);
 function showDialog(id) { const dialog = $(id); if (!dialog.open) dialog.showModal(); }
-function closeAll() { for (const d of document.querySelectorAll('dialog')) if (d.open) d.close(); }
+function closeAll() { stopIEDDraw(); for (const d of document.querySelectorAll('dialog')) if (d.open) d.close(); }
 
 const icon = (type, cls = '') => {
  const paths = {
@@ -45,7 +46,7 @@ function cardDrawing(id) {
 function renderMenu() {
  $('mode-campaign').setAttribute('aria-pressed', mode === 'campaign');
  $('mode-free').setAttribute('aria-pressed', mode === 'free');
- $('mode-description').textContent = mode === 'free' ? 'Do convés ao escritório. Jogue qualquer uma das quatro missões disponíveis, na ordem que quiser.' : 'Uma missão de cada vez: SMS → IEEI → PSPO → Pré-Op/P-83.';
+ $('mode-description').textContent = mode === 'free' ? 'Do convés ao escritório. Jogue qualquer uma das cinco missões disponíveis, na ordem que quiser.' : 'Uma missão de cada vez: SMS → IEEI → IED → PSPO → Pré-Op/P-83.';
  $('campaign-start').innerHTML = `${save.completed.length && save.completed.length < sequence.length ? 'Continuar campanha' : 'Iniciar campanha'} <span>➜</span>`;
  $('mission-grid').innerHTML = Object.entries(levels).map(([id, l]) => {
   const lock = !l.future && !unlocked(id), done = save.completed.includes(id);
@@ -72,11 +73,14 @@ function start(id) {
  $('metric-label').textContent = id === 'sms' ? 'PLACAR' : id === 'pspo' ? 'ATÉ A COPA' : 'TEMPO';
  $('office-route').hidden = id !== 'pspo';
  $('coffee-touch').hidden = id !== 'pspo';
- document.querySelector('[data-key="ArrowUp"]').setAttribute('aria-label', id === 'pspo' ? 'Pular' : 'Subir');
+ document.querySelector('[data-key="ArrowUp"]').setAttribute('aria-label', ['pspo','ied'].includes(id) ? 'Pular' : 'Subir');
  document.querySelector('[data-key="ArrowDown"]').setAttribute('aria-label', id === 'pspo' ? 'Abaixar' : 'Descer');
  $('game-screen').classList.toggle('office-game', id === 'pspo');
- $('game-canvas').setAttribute('aria-label', id === 'pspo' ? 'Escritório do EDISEN. Setas para correr, espaço para pular mesas, seta para baixo para abaixar e E ou clique na máquina para pegar café. Evite o terceiro formulário.' : 'Área de jogo. Setas para caminhar e subir escadas, espaço para pular e mouse para interagir.');
+ $('game-screen').classList.toggle('dynamic-game', id === 'ied');
+ document.querySelector('[data-key="ArrowDown"]').hidden = id === 'ied';
+ $('game-canvas').setAttribute('aria-label', id === 'pspo' ? 'Escritório do EDISEN. Setas para correr, espaço para pular mesas, seta para baixo para abaixar e E ou clique na máquina para pegar café. Evite o terceiro formulário.' : id === 'ied' ? 'Convés da P-83. Setas para caminhar, espaço para pular passarelas. Aproxime-se e clique nas máquinas para alinhar e sincronizar.' : 'Área de jogo. Setas para caminhar e subir escadas, espaço para pular e mouse para interagir.');
  $('control-legend').innerHTML = id === 'pspo' ? '<span><kbd>←</kbd><kbd>→</kbd> correr</span><span><kbd>espaço</kbd><kbd>↑</kbd> pular</span><span><kbd>↓</kbd> abaixar</span><span><kbd>E</kbd> ou clique · café</span>' : '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span>◉ clicar para interagir</span>';
+ if (id === 'ied') $('control-legend').innerHTML = '<span><kbd>←</kbd><kbd>→</kbd> mover / ajustar</span><span><kbd>espaço</kbd> pular / alinhar</span><span>◉ clicar na máquina</span>';
  $('game-footnote').textContent = id === 'pspo' ? 'EDISEN · Torre B · 12º andar — interpretação cartunesca; disposição interna fictícia.' : 'Uma aventura fictícia na P-83. As interações são simplificações para o jogo.';
  $('audit-panel').hidden = id !== 'sms'; $('audit-panel').open = false;
  if (!game) game = new Game($('game-canvas'), { onUpdate: update, onEnd: end, onInteraction: interaction });
@@ -105,12 +109,12 @@ function update(s) {
   $('metric-value').textContent = s.timeLeft === null ? s.score : `${Math.ceil(s.timeLeft)}s`;
   $('metric-value').parentElement.classList.toggle('danger', s.timeLeft !== null && s.timeLeft <= 15);
  }
- const feedback = s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : s.stageId === 'pspo' ? 'O café está no fim do corredor. Pule as mesas e desvie dos forms!' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
- $('game-feedback').textContent = feedback; $('game-feedback').dataset.tone = s.feedback.until >= s.elapsed ? s.feedback.tone : 'info';
+ const feedback = s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : s.stageId === 'pspo' ? 'O café está no fim do corredor. Pule as mesas e desvie dos forms!' : s.stageId === 'ied' ? 'Aproxime-se da próxima máquina. Alinhe os eixos e encontre a rotação certa!' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
+ if ($('game-feedback').textContent !== feedback) $('game-feedback').textContent = feedback; $('game-feedback').dataset.tone = s.feedback.until >= s.elapsed ? s.feedback.tone : 'info';
  if (feedback !== lastFeedback) { if (s.feedback.until >= s.elapsed) { if (s.feedback.tone === 'success') beep(600); if (s.feedback.tone === 'error') beep(180); } lastFeedback = feedback; }
  if (s.mode === 'paused' && pauseCause !== 'help' && !$('pause-dialog').open) showDialog('pause-dialog');
  if (s.activeTarget) updateInteraction(s);
- else if ($('interaction-dialog').open) { $('interaction-dialog').close(); dragging = false; if(s.mode === 'playing') $('game-canvas').focus(); }
+ else if ($('interaction-dialog').open) { stopIEDDraw(); $('interaction-dialog').close(); dragging = false; if(s.mode === 'playing') $('game-canvas').focus(); }
 }
 function end(outcome) {
  result = outcome; dragging = false; closeAll(); const l = levels[outcome.stageId];
@@ -121,14 +125,14 @@ function end(outcome) {
  const campaignDone = outcome.success && mode === 'campaign' && sequence.every(id => save.completed.includes(id));
  $('result-medal').textContent = outcome.success ? '★' : '↻';
  $('result-eyebrow').textContent = outcome.success ? campaignDone ? 'CAMPANHA CONCLUÍDA' : 'MISSÃO CUMPRIDA' : 'NOVA TENTATIVA';
- $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : outcome.stageId === 'pspo' ? 'Café conquistado!' : 'Boa, equipe!' : outcome.stageId === 'pspo' ? 'Papelada demais!' : 'Vamos de novo?';
- $('result-message').textContent = campaignDone ? 'SMS, integridade, planejamento e pré-operação: as quatro missões foram concluídas. IED fica para o próximo capítulo.' : outcome.reason;
+ $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : outcome.stageId === 'pspo' ? 'Café conquistado!' : outcome.stageId === 'ied' ? 'Na mesma rotação!' : 'Boa, equipe!' : outcome.stageId === 'pspo' ? 'Papelada demais!' : 'Vamos de novo?';
+ $('result-message').textContent = campaignDone ? 'As cinco gerências, um só time! SMS, IEEI, IED, PSPO e Pré-Op/P-83: campanha concluída.' : outcome.reason;
  $('result-stats').innerHTML = outcome.stageId === 'pspo' ? `<span><strong>${game.getSnapshot().office.hits} / 3</strong>impactos</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de corrida</span>` : `<span><strong>${outcome.correct} / ${l.goal}</strong>${outcome.stageId === 'sms' ? 'registros' : 'concluídos'}</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de missão</span>`;
  $('result-next').innerHTML = `${!outcome.success ? 'Recomeçar fase' : mode === 'campaign' && !campaignDone ? 'Próxima missão' : 'Jogar novamente'} <span>${outcome.success ? '➜' : '↻'}</span>`;
  showDialog('result-dialog');
 }
 function pauseGame() { if (game?.getSnapshot()?.mode === 'playing') { pauseCause = 'pause'; game.pause(true); } }
-function resume() { if ($('pause-dialog').open) $('pause-dialog').close(); pauseCause = null; game?.pause(false); if (!$('interaction-dialog').open) $('game-canvas').focus(); }
+function resume() { if ($('pause-dialog').open) $('pause-dialog').close(); pauseCause = null; game?.pause(false); if ($('interaction-dialog').open && game?.getSnapshot()?.activeTarget?.type === 'dynamic') { $('dynamic-canvas').focus(); startIEDDraw(); } else if (!$('interaction-dialog').open) $('game-canvas').focus(); }
 function help() { if(game?.getSnapshot()?.mode === 'playing') {pauseCause = 'help';game.pause(true);} showDialog('help-dialog'); }
 $('help-dialog').addEventListener('close', () => {if(pauseCause === 'help') { pauseCause = null;game?.pause(false); }});
 function beep(frequency) { if (!soundEnabled || !audio) return; try { const osc=audio.createOscillator(), gain=audio.createGain();osc.type='sine';osc.frequency.value=frequency;gain.gain.setValueAtTime(.045,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.12);osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+.13); } catch {} }
@@ -139,16 +143,24 @@ $('tool-grid').innerHTML = toolNames.map((name,i)=>`<button class="tool-button" 
 $('tap-options').innerHTML = taps.map(([name,desc],i)=>`<button class="tap-option" data-tap="${i}"><span>${i+1}</span><span>${name}<small>${desc}</small></span></button>`).join('');
 function interaction({type,target,state}) {
  dragging = false;
- $('repair-content').hidden = type !== 'repair'; $('tap-content').hidden = type !== 'tap';
+ $('repair-content').hidden = type !== 'repair'; $('tap-content').hidden = type !== 'tap'; $('dynamic-content').hidden = type !== 'dynamic';
+ $('interaction-dialog').classList.toggle('dynamic-dialog', type === 'dynamic');
+ if (type === 'dynamic') {
+  $('interaction-eyebrow').textContent = `IED / CONJUNTO ${target.index + 1} DE 3`;
+  $('interaction-title').textContent = target.label;
+  $('interaction-intro').textContent = 'Encontre o compasso da máquina. O turno continua correndo!';
+  updateInteraction(state); showDialog('interaction-dialog'); $('dynamic-canvas').focus(); startIEDDraw(); return;
+ }
  $('interaction-eyebrow').textContent = type === 'repair' ? `IEEI / PONTO ${state.rust.indexOf(target)+1} DE 3` : `PRÉ-OP / SISTEMA ${state.stations.indexOf(target)+1} DE 3`;
  $('interaction-title').textContent = type === 'repair' ? target.label : target.label;
  $('interaction-intro').textContent = type === 'repair' ? 'Trate a área na sequência correta. O relógio continua correndo!' : 'Prepare o sistema para a TAP. Escolha fora de ordem: −5 segundos.';
  updateInteraction(state); showDialog('interaction-dialog');
 }
 function updateInteraction(s) {
- const target = (s.activeTarget.type === 'repair' ? s.rust : s.stations).find(t=>t.id===s.activeTarget.id); if (!target) return;
+ const target = (s.activeTarget.type === 'repair' ? s.rust : s.activeTarget.type === 'dynamic' ? s.dynamic.machines : s.stations).find(t=>t.id===s.activeTarget.id); if (!target) return;
  $('interaction-time').textContent = `${Math.ceil(s.timeLeft)}s restantes`;
- $('interaction-status').textContent = s.feedback?.text || '';
+ const status = s.feedback?.text || ''; if ($('interaction-status').textContent !== status) $('interaction-status').textContent = status;
+ if (s.activeTarget.type === 'dynamic') { updateIEDPanel(s, target); return; }
  if (s.activeTarget.type === 'repair') {
   document.querySelectorAll('[data-tool]').forEach(btn => { const n=Number(btn.dataset.tool); btn.classList.toggle('done',n<target.step);btn.classList.toggle('active',n===s.selectedTool);btn.disabled=n<target.step;btn.setAttribute('aria-pressed',n===s.selectedTool); });
   const pct = Math.round((target.progress || 0)*100);
@@ -161,6 +173,41 @@ function updateInteraction(s) {
   $('work-area').classList.toggle('working',s.selectedTool !== null);
   $('tool-cursor').innerHTML = s.selectedTool === null ? '' : icon(toolIcons[s.selectedTool]);
  } else document.querySelectorAll('[data-tap]').forEach(btn=>{const n=Number(btn.dataset.tap);btn.classList.toggle('done',n<target.step);btn.disabled=n<target.step;btn.firstElementChild.textContent=n<target.step?'✓':n+1;});
+}
+let iedAnimation = 0;
+function stopIEDDraw() { if (iedAnimation) cancelAnimationFrame(iedAnimation); iedAnimation = 0; }
+function startIEDDraw() {
+ if (iedAnimation) return;
+ const frame = () => {
+  iedAnimation = 0;
+  const s = game?.getSnapshot();
+  if (!$('interaction-dialog').open || s?.activeTarget?.type !== 'dynamic') return;
+  const target = s.dynamic.machines.find(m => m.id === s.activeTarget.id);
+  if (target) drawIEDChallenge($('dynamic-canvas').getContext('2d'), target, s.elapsed);
+  iedAnimation = requestAnimationFrame(frame);
+ };
+ iedAnimation = requestAnimationFrame(frame);
+}
+function updateIEDPanel(s, target) {
+ const align = target.phase === 'align', paused = s.mode !== 'playing';
+ $('dynamic-step').textContent = align ? '01 / ALINHAR OS EIXOS' : '02 / SINCRONIZAR A ROTAÇÃO';
+ $('dynamic-progress').textContent = align ? `${target.alignmentHits} / 3 acertos` : `${Math.min(target.requiredStableTime,target.stableTime).toFixed(1)} / ${target.requiredStableTime}s estáveis`;
+ $('dynamic-hint').textContent = align ? 'Espaço ou Alinhar quando as duas marcas coincidirem. Espere a próxima volta para um novo acerto.' : 'Segure ← ou → para corrigir o ponteiro. Mantenha-o na faixa verde por 4 segundos seguidos.';
+ $('dynamic-align').hidden = !align;
+ $('dynamic-sync').hidden = align;
+ $('dynamic-align').disabled = paused;
+ document.querySelectorAll('[data-ied-control]').forEach(b => b.disabled = paused || align);
+ $('dynamic-canvas').setAttribute('aria-label', align ? `Alinhamento dos eixos: ${target.alignmentHits} de 3 acertos. Espaço quando as marcas coincidirem.` : `Sincronização: ponteiro ${Math.round(target.needle*100)}. Faixa verde entre ${-Math.round(target.band*100)} e ${Math.round(target.band*100)}. Setas ajustam a rotação.`);
+ const progress = align ? target.alignmentHits / 3 : target.stableTime / target.requiredStableTime;
+ $('dynamic-meter').setAttribute('aria-valuenow', Math.round(progress*100));
+ $('dynamic-meter-fill').style.width = `${Math.min(100,progress*100)}%`;
+ startIEDDraw();
+}
+$('dynamic-align').onclick = () => game?.alignMachine();
+$('dynamic-pause').onclick = pauseGame;
+for (const button of document.querySelectorAll('[data-ied-control]')) {
+ button.addEventListener('pointerdown',e => {e.preventDefault(); button.setPointerCapture(e.pointerId); game?.setControl(button.dataset.iedControl,true);});
+ for (const event of ['pointerup','pointercancel','lostpointercapture']) button.addEventListener(event,() => game?.setControl(button.dataset.iedControl,false));
 }
 let dragging=false, lastPoint=null;
 const area = $('work-area');

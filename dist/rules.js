@@ -3,7 +3,7 @@ export const RULES = Object.freeze({
   viewSeconds: 2,
   observationsToWin: 5,
   repairsToWin: 3,
-  repairSeconds: 60,
+  repairSeconds: 90,
   tapSeconds: 120,
   tapPenaltySeconds: 5,
   workPixelsPerStep: 180,

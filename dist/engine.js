@@ -1,13 +1,14 @@
 import { drawGame } from './renderer.js';
+import { makeRepairPoints, canReachRepair, applyRepairGesture } from './repair-model.js';
 import { makePreop, preopTargets, canReachPreop, PREOP_SECONDS, PREOP_BONUS_SECONDS, PREOP_PENALTY_SECONDS } from './preop-model.js';
-import { RULES, clamp, observationOutcome, canReach, treatmentOutcome, deadlineExpired, rectanglesOverlap, officeHitOutcome, angleDistance, alignmentMatches, dynamicSyncStep } from './rules.js';
+import { RULES, clamp, observationOutcome, canReach, deadlineExpired, rectanglesOverlap, officeHitOutcome, angleDistance, alignmentMatches, dynamicSyncStep } from './rules.js';
 
 const WIDTH = 1200;
 const HEIGHT = 600;
 const GROUND = 500;
 const STAGES = {
   sms: { label: 'SMS · Olho vivo no convés', objective: 'Registre 5 desvios antes que os trabalhadores os corrijam.', limit: null },
-  ieei: { label: 'IEEI · Operação anticorrosão', objective: 'Trate os 3 pontos de corrosão em menos de 60 segundos.', limit: RULES.repairSeconds },
+  ieei: { label: 'IEEI · Operação anticorrosão', objective: 'Trate os 3 pontos de corrosão em menos de 90 segundos.', limit: RULES.repairSeconds },
   preop: { label: 'Pré-Op / P-83 · Só falta uma pendência!', objective: 'Resolva as pendências de óleo, gás e água e retorne ao quadro de fechamento.', limit: PREOP_SECONDS },
   pspo: { label: 'PSPO - Fuja dos forms de viagem!', objective: 'Salte as mesas, evite os formulários e pegue um café na copa.', limit: null },
   ied: { label: 'IED · No ritmo das máquinas', objective: 'Alinhe e sincronize os três conjuntos para estabilizar a P-83.', limit: RULES.dynamicSeconds },
@@ -99,6 +100,8 @@ function freshState(stageId) {
     stageLabel: config.label,
     objective: config.objective,
     mode: 'playing',
+    resumeMode: null,
+    celebration: null,
     worldWidth: stageId === 'pspo' ? 6600 : stageId === 'preop' ? 3600 : 3400,
     preop,
     camera: 0,
@@ -118,11 +121,7 @@ function freshState(stageId) {
       deskCount: OFFICE_DESKS.length, spawnIndex: 0, telegraph: null, spawnHistory: [],
     } : null,
     workers: stageId === 'sms' ? makeWorkers() : [],
-    rust: stageId === 'ieei' ? [
-      { id: 'rust-1', x: 470, y: 434, step: 0, progress: 0, label: 'Linha de processo' },
-      { id: 'rust-2', x: 1600, y: 434, step: 0, progress: 0, label: 'Suporte estrutural' },
-      { id: 'rust-3', x: 2820, y: 434, step: 0, progress: 0, label: 'Vaso de pressão' },
-    ] : [],
+    rust: stageId === 'ieei' ? makeRepairPoints() : [],
     stations: preop?.stations || [],
     score: 0,
     correct: 0,
@@ -147,6 +146,9 @@ export class Game {
     this.state = null;
     this.keys = new Set();
     this.destroyed = false;
+    this.repairStroke = null;
+    this.repairSoundTarget = null;
+    this.pendingOutcome = null;
     this.lastTime = null;
     this.lastUpdate = 0;
     this.frameId = null;
@@ -157,7 +159,7 @@ export class Game {
     this.onKeyDown = this.handleKeyDown.bind(this);
     this.onKeyUp = this.handleKeyUp.bind(this);
     this.onPointerDown = this.handlePointerDown.bind(this);
-    this.onBlur = () => { this.keys.clear(); this.jumpQueued = false; if (this.state?.mode === 'playing') this.pause(true); };
+    this.onBlur = () => { this.keys.clear(); this.jumpQueued = false; if (['playing', 'celebrating'].includes(this.state?.mode)) this.pause(true); };
     this.onVisibility = () => { if (document.hidden) this.onBlur(); };
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -172,22 +174,32 @@ export class Game {
     if (!STAGES[stageId]) throw new Error(`Fase desconhecida: ${stageId}`);
     this.keys.clear();
     this.jumpQueued = false;
+    this.pendingOutcome = null;
+    this.repairStroke = null;
+    this.repairSoundTarget = null;
     this.state = freshState(stageId);
     this.state.attempt = this.attempts[stageId] = (this.attempts[stageId] || 0) + 1;
     this.lastTime = null;
     this.lastUpdate = 0;
-    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : stageId === 'ied' ? 'Salte as passarelas, aproxime-se do primeiro conjunto e clique para integrar.' : stageId === 'preop' ? 'Leia o quadro, recolha as evidências e volte para fechar as TAPs. E ou clique para interagir.' : 'Aproxime-se de um ponto destacado e clique nele.', 'info', 4);
+    this.message(stageId === 'sms' ? 'Observe os EPIs! Cada desvio fica visível por 2 segundos.' : stageId === 'pspo' ? 'Setas para andar; ↑ ou espaço para saltar; ↓ para abaixar. Na copa, E ou clique para pegar o café.' : stageId === 'ied' ? 'Salte as passarelas, aproxime-se do primeiro conjunto e clique para integrar.' : stageId === 'preop' ? 'Leia o quadro, recolha as evidências e volte para fechar as TAPs. E ou clique para interagir.' : 'E ou clique perto do ponto. Suba a escada para tratar o suporte na passarela.', 'info', 4);
     this.emit();
   }
 
   getSnapshot() { return this.state; }
 
   pause(value = true) {
-    if (!this.state || this.state.mode === 'ended') return;
-    this.state.mode = value ? 'paused' : 'playing';
+    const s = this.state;
+    if (!s || s.mode === 'ended' || this.destroyed) return;
+    if (value) {
+      if (s.mode !== 'paused') { s.resumeMode = s.mode; s.mode = 'paused'; }
+    } else if (s.mode === 'paused') {
+      s.mode = s.resumeMode || 'playing';
+      s.resumeMode = null;
+    }
     this.keys.clear();
     this.jumpQueued = false;
-    this.state.player.ducking = false;
+    this.repairStroke = null;
+    s.player.ducking = false;
     this.lastTime = null;
     this.emit();
   }
@@ -202,6 +214,16 @@ export class Game {
         if (event.code === 'Space') { if (!event.repeat) this.alignMachine(); }
         else this.keys.add(event.code);
       }
+      return;
+    }
+    if (this.state.activeTarget?.type === 'repair' && /^(Digit|Numpad)[1-4]$/.test(event.code)) {
+      event.preventDefault();
+      if (!event.repeat) this.chooseTool(Number(event.code.slice(-1)) - 1);
+      return;
+    }
+    if (event.code === 'KeyE' && this.state.stageId === 'ieei') {
+      event.preventDefault();
+      if (!event.repeat && !this.state.activeTarget) this.interactRepair();
       return;
     }
     if (event.code === 'KeyE' && this.state.stageId === 'preop') {
@@ -234,7 +256,7 @@ export class Game {
       }
       return;
     }
-    if (code === 'KeyE') { if (pressed) { if (this.state?.stageId === 'preop') this.interactPreop(); else this.collectCoffee(); } return; }
+    if (code === 'KeyE') { if (pressed) { if (this.state?.stageId === 'preop') this.interactPreop(); else if (this.state?.stageId === 'ieei') this.interactRepair(); else this.collectCoffee(); } return; }
     if (pressed && this.state?.mode !== 'playing') return;
     if (pressed) {
       this.keys.add(code);
@@ -286,31 +308,16 @@ export class Game {
       if (worker) this.observe(worker);
       return;
     }
-    const type = s.stageId === 'ieei' ? 'repair' : 'tap';
-    const candidates = type === 'repair' ? s.rust : s.stations;
-    const target = candidates.find((t, index) => {
-      const body = Math.abs(point.x - t.x) <= 68 && point.y >= t.y - (type === 'repair' ? 80 : 92) && point.y <= t.y + 70;
-      const markerY = t.y - [95, 122, 109][index % 3];
-      const marker = type === 'tap' && Math.abs(point.x - t.x) <= 22 && Math.abs(point.y - markerY) <= 22;
-      return body || marker;
-    });
-    if (!target) return;
-    const finalStep = type === 'repair' ? RULES.repairSteps : RULES.tapSteps;
-    if (target.step >= finalStep) { this.message('Este ponto já foi concluído.', 'success'); return; }
-    if (!canReach(s.player, target)) { this.message('Chegue mais perto para interagir.', 'info'); return; }
-    s.activeTarget = { type, id: target.id };
-    s.selectedTool = null;
-    s.toolProgress = target.progress || 0;
-    this.keys.clear();
-    this.jumpQueued = false;
-    s.player.walking = false;
-    s.player.vx = 0;
-    this.callbacks.onInteraction?.({ type, target, state: s });
-    this.emit();
+    if (s.stageId === 'ieei') {
+      const target = s.rust.find(target => Math.abs(point.x - target.x) <= 95 && point.y >= target.y - 135 && point.y <= target.y + 75);
+      if (target) this.interactRepair(target.id);
+      return;
+    }
   }
 
   observe(worker) {
     const s = this.state;
+    if (!s || s.mode !== 'playing') return;
     const outcome = observationOutcome(worker, s.elapsed, s.score, s.correct);
     if (outcome.type === 'duplicate') { this.message('Observação já registrada na prancheta.', 'info'); return; }
     s.score = outcome.score;
@@ -335,6 +342,7 @@ export class Game {
     if (!this.state) return;
     const target = this.getTarget();
     if (this.state.activeTarget?.type === 'dynamic' && target?.phase === 'sync') target.stableTime = 0;
+    this.repairStroke = null;
     this.state.activeTarget = null;
     this.state.selectedTool = null;
     this.state.toolProgress = 0;
@@ -405,11 +413,32 @@ export class Game {
     return true;
   }
 
+  interactRepair(id = null) {
+    const s = this.state;
+    if (!s || s.mode !== 'playing' || s.stageId !== 'ieei' || s.activeTarget) return false;
+    const target = id ? s.rust.find(point => point.id === id) : s.rust.filter(point => point.step < 4 && canReachRepair(s.player, point)).sort((a, b) => Math.abs(a.x - s.player.x) - Math.abs(b.x - s.player.x))[0];
+    if (!target || !canReachRepair(s.player, target)) {
+      this.message('Aproxime-se do ponto. O suporte precisa ser alcançado pela passarela.', 'info');
+      return false;
+    }
+    if (target.step >= 4) { this.message('Este ponto já foi recuperado!', 'success'); return false; }
+    s.activeTarget = { type: 'repair', id: target.id };
+    s.selectedTool = null;
+    s.toolProgress = target.progress;
+    this.repairStroke = null;
+    this.keys.clear(); this.jumpQueued = false;
+    s.player.vx = 0; s.player.walking = false;
+    this.callbacks.onInteraction?.({ type: 'repair', target, state: s });
+    this.emit();
+    return true;
+  }
+
   chooseTool(index) {
     const s = this.state;
     const target = this.getTarget();
     if (!target || s.mode !== 'playing' || s.activeTarget.type !== 'repair' || target.step >= RULES.repairSteps) return false;
     if (!Number.isInteger(index) || index < 0 || index >= RULES.repairSteps) return false;
+    this.repairStroke = null;
     if (index !== target.step) {
       s.selectedTool = null;
       this.message(`Sequência incorreta. Primeiro: ${TOOL_LABELS[target.step]}.`, 'error');
@@ -417,20 +446,24 @@ export class Game {
       return false;
     }
     s.selectedTool = index;
-    this.message(`${TOOL_LABELS[index]} selecionado. Segure e arraste sobre a área.`, 'info');
+    const action = ['Segure e varra a superfície com o jato.', 'Esfregue em movimentos de ida e volta sobre a ferrugem.', 'Clique em cada uma das três áreas sinalizadas.', 'Arraste o rolo para cobrir as falhas restantes.'][index];
+    this.message(`${TOOL_LABELS[index]}: ${action}`, 'info');
     this.emit();
     return true;
   }
 
-  work(amount) {
+  repairGesture(gesture) {
     const s = this.state;
     const target = this.getTarget();
-    if (!target || s.mode !== 'playing' || s.activeTarget.type !== 'repair') return;
-    if (s.selectedTool === target.step && target.progress === 0 && Number.isFinite(amount) && amount > 0) this.sound(['water', 'brush', 'neutral', 'paint'][target.step]);
-    const outcome = treatmentOutcome(target.step, s.selectedTool, target.progress, amount);
-    target.step = outcome.step;
-    target.progress = outcome.progress;
-    s.toolProgress = outcome.progress;
+    if (!target || s.mode !== 'playing' || s.activeTarget.type !== 'repair' || s.selectedTool !== target.step) { this.repairStroke = null; return false; }
+    const step = target.step;
+    const outcome = applyRepairGesture(target, s.selectedTool, this.repairStroke, gesture);
+    this.repairStroke = outcome.stroke;
+    s.toolProgress = target.progress;
+    if (outcome.changed && this.repairSoundTarget !== `${target.id}:${step}`) {
+      this.repairSoundTarget = `${target.id}:${step}`;
+      this.sound(['water', 'brush', 'neutral', 'paint'][step]);
+    }
     if (outcome.advanced) {
       s.selectedTool = null;
       if (outcome.completed) {
@@ -444,6 +477,7 @@ export class Game {
       } else this.message(`Etapa concluída! Próximo: ${TOOL_LABELS[target.step]}.`, 'success');
     }
     this.emit();
+    return outcome.changed || outcome.advanced;
   }
 
   preopReady() { return this.state?.stageId === 'preop' && this.state.mode === 'playing' && !this.state.preop.closing; }
@@ -657,7 +691,7 @@ export class Game {
         machine.vibration = Math.min(2, machine.vibration + 0.3);
         this.dynamicPenalty(RULES.dynamicSyncPenalty, 'A agulha saiu da faixa: estabilidade reiniciada e −2 segundos. Corrija com ← e →.');
         machine.nextFaultAt = s.elapsed + 2;
-        if (s.mode === 'ended') return;
+        if (s.mode !== 'playing') return;
       }
       if (machine.stableTime + 1e-9 >= machine.requiredStableTime) {
         machine.stableTime = machine.requiredStableTime;
@@ -818,7 +852,19 @@ export class Game {
 
   update(dt, physicsDt = dt) {
     const s = this.state;
-    if (!s || s.mode !== 'playing') return;
+    if (!s || this.destroyed) return;
+    if (s.mode === 'celebrating') {
+      s.celebration.elapsed = Math.min(s.celebration.duration, s.celebration.elapsed + Math.max(0, dt));
+      if (s.celebration.elapsed >= s.celebration.duration) {
+        s.mode = 'ended';
+        const outcome = this.pendingOutcome;
+        this.pendingOutcome = null;
+        this.emit();
+        if (outcome) this.callbacks.onEnd?.(outcome);
+      }
+      return;
+    }
+    if (s.mode !== 'playing') return;
     if (s.preop?.closing) {
       s.preop.closing.elapsed = Math.min(s.preop.closing.duration, s.preop.closing.elapsed + dt);
       if (s.preop.closing.elapsed >= s.preop.closing.duration) this.end(true, 'Três sistemas com TAP aprovada (FIC concluída)! Assinaturas e evidências registradas.');
@@ -829,7 +875,7 @@ export class Game {
     if (limit !== null) {
       s.timeLeft = Math.max(0, limit - s.elapsed);
       if (deadlineExpired(s.elapsed, limit)) {
-        this.end(false, s.stageId === 'ieei' ? 'O minuto terminou. Os três pontos precisam estar completamente tratados.' : s.stageId === 'ied' ? 'O prazo de 90 segundos terminou antes da integração dos três conjuntos.' : 'O prazo terminou antes da conclusão dos três sistemas.');
+        this.end(false, s.stageId === 'ieei' ? 'Os 90 segundos terminaram. Os três pontos precisam estar completamente tratados.' : s.stageId === 'ied' ? 'O prazo de 90 segundos terminou antes da integração dos três conjuntos.' : 'O prazo terminou antes da conclusão dos três sistemas.');
         return;
       }
     }
@@ -837,11 +883,11 @@ export class Game {
     this.updatePhysics(physicsDt);
     if (s.stageId === 'ied') {
       this.updateDynamicChallenge(dt);
-      if (s.mode === 'ended') return;
+      if (s.mode !== 'playing') return;
     }
     if (s.stageId === 'pspo') {
       this.updateOffice(physicsDt);
-      if (s.mode === 'ended') return;
+      if (s.mode !== 'playing') return;
     }
     if (s.stageId === 'sms') {
       for (const worker of s.workers) {
@@ -866,15 +912,25 @@ export class Game {
 
   end(success, reason) {
     const s = this.state;
-    if (!s || s.mode === 'ended') return;
-    s.mode = 'ended';
+    if (!s || this.destroyed || s.mode === 'ended' || s.celebration) return;
+    const outcome = { success, stageId: s.stageId, score: s.score, correct: s.correct, elapsed: s.elapsed, reason, ...(s.office ? { hits: s.office.hits, distance: s.office.distance } : {}), ...(s.dynamic ? { faults: s.dynamic.totalFaults } : {}) };
+    s.mode = success ? 'celebrating' : 'ended';
+    s.resumeMode = null;
     this.sound(success ? 'victory' : 'defeat');
     s.activeTarget = null;
     s.selectedTool = null;
+    s.player.walking = false;
+    s.player.vx = 0;
+    s.player.ducking = false;
+    this.repairStroke = null;
     this.keys.clear();
     this.jumpQueued = false;
+    if (success) {
+      s.celebration = { elapsed: 0, duration: 2.8, success: true };
+      this.pendingOutcome = outcome;
+    }
     this.emit();
-    this.callbacks.onEnd?.({ success, stageId: s.stageId, score: s.score, correct: s.correct, elapsed: s.elapsed, reason, ...(s.office ? { hits: s.office.hits, distance: s.office.distance } : {}), ...(s.dynamic ? { faults: s.dynamic.totalFaults } : {}) });
+    if (!success) this.callbacks.onEnd?.(outcome);
   }
 
   emit() { if (this.state) this.callbacks.onUpdate?.(this.state); }
@@ -895,6 +951,8 @@ export class Game {
 
   destroy() {
     this.destroyed = true;
+    this.pendingOutcome = null;
+    this.repairStroke = null;
     cancelAnimationFrame(this.frameId);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);

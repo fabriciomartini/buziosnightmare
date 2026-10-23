@@ -1,4 +1,5 @@
 // An original, playful interpretation of an EDISEN office—not a floor plan.
+import { celebrationPose, drawCelebrationOverlay } from './celebration-renderer.js';
 const INK = '#23434a';
 const TEAL = '#438c89';
 const PAPER = '#fffdf0';
@@ -229,27 +230,29 @@ function sleeve(c,x,y,angle,shade='#d5e7eb'){
 }
 export function drawAnderson(c,x,y,o={}){
   c.save();c.translate(x,y);if(o.scale)c.scale(o.scale,o.scale);
-  const t=o.time||0,walk=o.walking?Math.sin(t*13):0,facing=o.facing===-1?-1:1;
-  oval(c,0,-1,o.ducking?31:26,5,'#254f4126');
-  if(o.ducking){
+  const victory=o.celebration,t=victory?.time??o.time??0,walk=victory?victory.hop*.1:o.walking?Math.sin(t*13):0,facing=o.facing===-1?-1:1;
+  oval(c,0,-1,o.ducking&&!victory?31:26-(victory?.hop||0)*.3,5,'#254f4126');
+  if(victory){c.translate(0,-victory.hop*.45);c.rotate(victory.sway*.6);}
+  if(o.ducking&&!victory){
     poly(c,[[-9,-19],[-29,-12],[-21,-4],[-2,-6],[13,-4],[25,-10],[12,-21]],'#b6a37b',INK,2.5);
     rect(c,-30,-7,24,8,4,'#765443',INK,2);rect(c,6,-7,26,8,4,'#765443',INK,2);
     rect(c,-15,-31,39,19,7,'#cfe4e9',INK,2);sleeve(c,19,-27,-.95,'#cfe4e9');
     face(c,facing*7,-40,19,facing,Boolean(o.stress));
   }else{
-    const lean=o.walking?facing*.045:0;c.rotate(lean);const bob=o.walking?Math.abs(walk)*2:Math.sin(t*2)*.5;c.translate(0,-bob);
+    const lean=!victory&&o.walking?facing*.045:0;c.rotate(lean);const bob=victory?0:o.walking?Math.abs(walk)*2:Math.sin(t*2)*.5;c.translate(0,-bob);
     const left=walk*7,right=-walk*7;
     poly(c,[[-17,-34],[-17+left,-10],[-4+left,-7],[-1,-33]],'#b9aa85',INK,2.5);poly(c,[[0,-33],[3+right,-7],[17+right,-10],[17,-34]],'#cbb995',INK,2.5);
     ln(c,-10,-30,-10+left,-12,'#dcd0ae',1.4);ln(c,8,-30,10+right,-12,'#e1d4b0',1.4);
     rect(c,-21+left,-10,26,10,4,'#795b49',INK,2.5);rect(c,1+right,-10,27,10,4,'#88654c',INK,2.5);ln(c,-18+left,-3,1+left,-3,'#b8956d',1);ln(c,6+right,-3,25+right,-3,'#b8956d',1);
-    sleeve(c,-20,-63,walk*.7+.16,'#c3dce2');
+    sleeve(c,-20,-63,victory?.lift*.75||walk*.7+.16,'#c3dce2');
     rect(c,-22,-65,44,35,9,'#d6e7e8',INK,2.5);rect(c,-21,-35,42,6,2,'#725c43',INK,1.5);rect(c,-3,-35,7,6,1,'#c5bf96',INK,1);
     poly(c,[[-11,-64],[0,-54],[9,-64],[4,-69],[-5,-69]],'#fbfaf0',INK,1.4);ln(c,0,-54,0,-37,'#a1b9bd',1.2);oval(c,3,-48,1.1,1.1,'#839da3');oval(c,3,-40,1.1,1.1,'#839da3');
     // A badge lanyard makes the administrator's outfit distinct from coveralls.
     poly(c,[[-10,-62],[-4,-44],[10,-44],[14,-62]],null,'#438982',2,false);rect(c,-3,-47,15,16,2,'#fffce4',INK,1);rect(c,-1,-45,11,4,1,'#4b9a8c',null);oval(c,4.5,-38,2,2,'#c9a481');
-    sleeve(c,20,-62,-walk*.7-.2,'#d6e7e8');
-    face(c,0,-85,25,facing,Boolean(o.stress));
-    if(o.success)cup(c,31,-39,.7,t);
+    const rightArm=victory?-.2-victory.lift*2.05:-walk*.7-.2;
+    sleeve(c,20,-62,rightArm,'#d6e7e8');
+    face(c,0,-85,25,facing,!victory&&Boolean(o.stress));
+    if(o.success||victory)cup(c,victory?26-Math.sin(rightArm)*29:31,victory?-75+Math.cos(rightArm)*29:-39,.7,t);
   }
   if(o.player){rect(c,-38,o.ducking?-83:-141,76,17,5,'#e4f1d3',INK,1.8);label(c,'ANDERSON',0,o.ducking?-74.5:-132.5,9);}
   c.restore();
@@ -327,9 +330,9 @@ export function drawOffice(c,s){
   (s.platforms||[]).forEach((d,i)=>{if(visible(d.x,d.w,cam))desk(c,d,i);});
   for(const f of office.forms||[])if(visible(f.x-90,180,cam))form(c,f,t,reduce);
   if(s.player){
-    const invulnerable=t<(office.invulnerableUntil||0),p=s.player;
+    const victory=celebrationPose(s),invulnerable=!victory&&t<(office.invulnerableUntil||0),p=s.player;
     c.save();if(invulnerable&&Math.floor(t*13)%2)c.globalAlpha=.38;
-    drawAnderson(c,p.x,p.y,{time:t,walking:p.walking,facing:p.facing,ducking:p.ducking,stress:(office.hits||0)>0||p.walking,player:true,success:coffee.collected});c.restore();
+    drawAnderson(c,p.x,p.y,{celebration:victory,time:t,walking:p.walking,facing:p.facing,ducking:p.ducking,stress:(office.hits||0)>0||p.walking,player:true,success:coffee.collected});c.restore();
     if(invulnerable){for(let i=0;i<3;i++){const a=t*5+i*2.1;label(c,'✦',p.x+Math.cos(a)*36,p.y-(p.ducking?66:120)+Math.sin(a)*9,13,'#bb874b');}}
   }
   for(const p of s.particles||[]){c.globalAlpha=Math.min(1,Math.max(0,p.life/(p.maxLife||1)));oval(c,p.x,p.y,p.size||3,p.size||3,p.color||'#f4d074');}c.restore();
@@ -337,6 +340,7 @@ export function drawOffice(c,s){
   // Architectural identification remains readable throughout the long corridor.
   rect(c,20,12,322,32,8,'#f2f5e9e8','#8ca7a2',1.5);rect(c,28,19,29,18,4,'#438b80',null);label(c,'B',42.5,28,12,'#f2f7db');label(c,'EDISEN  ·  TORRE B  ·  12º ANDAR',69,28,10.2,'#3e6764','left');
   c.restore();
+  drawCelebrationOverlay(c,s);
 }
 export function drawOfficePortrait(c,size=128){
   c.save();c.clearRect(0,0,c.canvas?.width||size,c.canvas?.height||size);oval(c,size/2,size/2,size*.46,size*.46,'#c7dfdb');

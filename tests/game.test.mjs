@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../dist/engine.js';
-import { observationOutcome, treatmentOutcome, tapOutcome, deadlineExpired, alignmentMatches, angleDistance, dynamicSyncStep } from '../dist/rules.js';
+import { observationOutcome, tapOutcome, deadlineExpired, alignmentMatches, angleDistance, dynamicSyncStep } from '../dist/rules.js';
 
 /** Browser API stand-ins; the real engine, rules and renderer run in these tests. */
 function harness(t) {
@@ -42,10 +42,12 @@ function harness(t) {
   const endings = [];
   const updates = [];
   const interactions = [];
+  const sounds = [];
   const game = new Game(canvas, {
     onEnd: result => endings.push(result),
     onUpdate: state => updates.push({ mode: state.mode, elapsed: state.elapsed, score: state.score }),
     onInteraction: result => interactions.push(result),
+    onSound: result => sounds.push(result),
   });
   t.after(() => {
     game.destroy();
@@ -72,11 +74,46 @@ function harness(t) {
   };
   const approach = target => {
     game.state.player.x = target.x - 70;
-    game.state.player.y = 500;
+    game.state.player.y = target.kind === 'support' ? 350 : 500;
     game.update(0);
     click(target.x, target.y);
   };
-  return { game, canvas, frame, click, key, approach, calls, gradients, frames, endings, updates, interactions, windowListeners, documentListeners, canvasListeners };
+  return { game, canvas, frame, click, key, approach, calls, gradients, frames, endings, updates, interactions, sounds, windowListeners, documentListeners, canvasListeners };
+}
+
+function settleVictory(h) {
+  assert.equal(h.game.state.mode, 'celebrating');
+  h.game.update(h.game.state.celebration.duration);
+  assert.equal(h.game.state.mode, 'ended');
+}
+
+function repairStroke(game, x1, y1, x2, y2, reverse = false, samples = 1) {
+  game.repairGesture({ type: 'start', x: x1, y: y1 });
+  for (let i = 1; i <= samples; i++) game.repairGesture({ type: 'move', x: x1 + (x2 - x1) * i / samples, y: y1 + (y2 - y1) * i / samples });
+  if (reverse) for (let i = 1; i <= samples; i++) game.repairGesture({ type: 'move', x: x2 + (x1 - x2) * i / samples, y: y2 + (y1 - y2) * i / samples });
+  game.repairGesture({ type: 'end', x: x1, y: y1 });
+}
+
+function finishRepairTool(h, target, tool = target.step, gestureDelay = 0) {
+  assert.equal(h.game.chooseTool(tool), true);
+  if (tool === 2) {
+    for (const zone of target.zones) {
+      h.game.repairGesture({ type: 'start', x: zone.x, y: zone.y });
+      h.game.repairGesture({ type: 'end', x: zone.x, y: zone.y });
+      if (gestureDelay) h.game.update(gestureDelay);
+    }
+  } else {
+    for (const cell of target.cells) {
+      if (target.step !== tool) break;
+      repairStroke(h.game, cell.x - .08, cell.y, cell.x + .08, cell.y, tool === 1);
+      if (gestureDelay) h.game.update(gestureDelay);
+    }
+  }
+  assert.equal(target.step, tool + 1, `tool ${tool} completes local treatment`);
+}
+
+function finishRepair(h, target, gestureDelay = 0) {
+  for (let tool = target.step; tool < 4; tool++) finishRepairTool(h, target, tool, gestureDelay);
 }
 
 test('real renderer runs from RAF using the logical 1200 × 600 canvas', t => {
@@ -168,6 +205,8 @@ test('SMS: five valid observations across a moving viewport finish the level', t
   for (const worker of hazards.slice(2, 5)) h.click(worker.x, worker.y - 70);
   assert.equal(h.game.state.correct, 5);
   assert.equal(h.game.state.score, 5);
+  assert.equal(h.endings.length, 0, 'the celebration precedes the score menu');
+  settleVictory(h);
   assert.equal(h.game.state.mode, 'ended');
   assert.equal(h.endings.length, 1);
   assert.equal(h.endings[0].success, true);
@@ -187,82 +226,112 @@ test('SMS: missing too many observation windows fails instead of stranding the p
   assert.match(h.endings[0].reason, /corrigiram/);
 });
 
-test('IEEI: approach is required, wrong tools do not progress, and dragging advances each stage', t => {
+test('IEEI: local gestures require proximity and the right tool; partial work survives dismissal', t => {
   const h = harness(t);
   h.game.start('ieei'); h.frame();
   const rust = h.game.state.rust[0];
   h.click(rust.x, rust.y);
   assert.equal(h.game.state.activeTarget, null);
-  assert.match(h.game.state.feedback.text, /perto/);
+  assert.match(h.game.state.feedback.text, /Aproxime|perto/);
   h.approach(rust);
   assert.deepEqual(h.game.state.activeTarget, { type: 'repair', id: rust.id });
   assert.equal(h.interactions.length, 1);
   assert.equal(h.game.chooseTool(1), false);
-  h.game.work(45);
+  const cell = rust.cells[0];
+  repairStroke(h.game, cell.x - .04, cell.y, cell.x + .04, cell.y);
   assert.equal(rust.progress, 0);
   assert.equal(h.game.chooseTool(0), true);
-  h.game.work(0);
-  assert.equal(rust.progress, 0, 'stationary clicking does not count as work');
-  h.game.work(45);
-  assert.equal(rust.progress, 0.25);
-  h.game.closeInteraction();
-  h.approach(rust);
-  assert.equal(h.game.state.toolProgress, 0.25, 'partial work survives dismissal');
-  h.game.chooseTool(0);
-  for (let i = 0; i < 3; i++) h.game.work(45);
-  assert.equal(rust.step, 1);
-  assert.equal(h.game.state.selectedTool, null);
-  for (let tool = 1; tool < 4; tool++) {
-    assert.equal(h.game.chooseTool(tool), true);
-    for (let i = 0; i < 4; i++) h.game.work(45);
-  }
+  h.game.repairGesture({type:'start', x:0, y:0});
+  h.game.repairGesture({type:'move', x:0, y:0});
+  h.game.repairGesture({type:'end', x:0, y:0});
+  assert.equal(rust.progress, 0, 'stationary or outside input cannot treat the surface');
+  repairStroke(h.game, cell.x - .04, cell.y, cell.x + .04, cell.y);
+  const partial = rust.progress;
+  assert.ok(partial > 0 && partial < .95);
+  h.game.closeInteraction(); h.approach(rust);
+  assert.equal(h.game.state.toolProgress, partial, 'partial work survives dismissal');
+  finishRepair(h, rust);
   assert.equal(rust.step, 4);
   assert.equal(h.game.state.correct, 1);
   assert.equal(h.game.state.score, 100);
   assert.equal(h.game.state.activeTarget, null);
 });
 
-test('IEEI: all three fully treated points finish successfully before the deadline', t => {
+test('IEEI: all three fully treated points celebrate before the score menu and keep the completion time', t => {
   const h = harness(t);
   h.game.start('ieei'); h.frame();
-  h.game.update(59);
-  for (const rust of h.game.state.rust) {
-    h.approach(rust);
-    for (let tool = 0; tool < 4; tool++) {
-      h.game.chooseTool(tool);
-      for (let i = 0; i < 4; i++) h.game.work(45);
-    }
-  }
+  h.game.update(89);
+  for (const rust of h.game.state.rust) { h.approach(rust); finishRepair(h, rust); }
   assert.equal(h.game.state.correct, 3);
   assert.equal(h.game.state.score, 300);
+  assert.equal(h.game.state.mode, 'celebrating');
+  assert.equal(h.endings.length, 0);
+  settleVictory(h);
   assert.equal(h.endings[0].success, true);
-  assert.equal(h.endings[0].elapsed, 59);
+  assert.equal(h.endings[0].elapsed, 89);
 });
 
-test('IEEI: the deadline runs while working and expires at exactly 60 seconds', t => {
+test('IEEI: the deadline runs while working and expires at exactly 90 seconds', t => {
   const h = harness(t);
   h.game.start('ieei'); h.frame();
   h.approach(h.game.state.rust[0]);
-  h.game.update(59.999);
+  h.game.update(89.999);
   assert.equal(h.game.state.mode, 'playing');
   h.game.update(0.001);
   assert.equal(h.game.state.timeLeft, 0);
   assert.equal(h.game.state.mode, 'ended');
   assert.equal(h.game.state.activeTarget, null);
   assert.equal(h.endings[0].success, false);
-  h.game.chooseTool(0); h.game.work(1000);
+  h.game.chooseTool(0); repairStroke(h.game, .1, .5, .9, .5);
   assert.equal(h.game.state.correct, 0);
 });
 
-test('slow rendering frames do not extend the one-minute deadline', t => {
+test('IEEI: E and tool keys work nearby; the elevated support cannot be opened from the deck', t => {
+  const h = harness(t); h.game.start('ieei');
+  const s = h.game.state, [pipe, support] = s.rust;
+  h.key('KeyE'); assert.equal(s.activeTarget, null);
+  s.player.x = pipe.x; h.key('KeyE');
+  assert.equal(s.activeTarget.id, pipe.id);
+  h.key('Digit2'); assert.equal(s.selectedTool, null);
+  h.key('Digit1'); assert.equal(s.selectedTool, 0);
+  h.game.closeInteraction();
+  s.player.x = support.x; s.player.y = 500;
+  assert.equal(h.game.interactRepair(support.id), false);
+  h.click(support.x, support.y); assert.equal(s.activeTarget, null);
+  s.player.y = 350;
+  h.game.setControl('KeyE', true); h.game.setControl('KeyE', false);
+  assert.equal(s.activeTarget.id, support.id);
+});
+
+test('IEEI: pause and tool changes terminate drag sessions without losing completed local work', t => {
+  const h = harness(t); h.game.start('ieei');
+  const target = h.game.state.rust[0]; h.approach(target); h.game.chooseTool(0);
+  const cell = target.cells[0];
+  repairStroke(h.game, cell.x-.01, cell.y, cell.x+.01, cell.y);
+  const progress = target.progress;
+  h.game.repairGesture({type:'start', x:.2, y:.5});
+  h.game.pause(true); h.game.update(10);
+  h.game.repairGesture({type:'move', x:.8, y:.5});
+  assert.equal(target.progress, progress);
+  h.game.pause(false);
+  h.game.repairGesture({type:'move', x:.8, y:.5});
+  assert.equal(target.progress, progress, 'resume does not draw a line from a stale pointer');
+  h.game.repairGesture({type:'start', x:.2, y:.5});
+  h.game.chooseTool(1);
+  h.game.chooseTool(0);
+  h.game.repairGesture({type:'move', x:.8, y:.5});
+  assert.equal(target.progress, progress, 'tool selection requires a fresh stroke');
+});
+
+test('slow rendering frames do not extend the ninety-second deadline', t => {
   const h = harness(t);
   h.game.start('ieei'); h.frame();
-  h.frame(30000);
-  assert.equal(h.game.state.timeLeft, 30);
-  h.frame(30000);
+  h.frame(45000);
+  assert.equal(h.game.state.timeLeft, 45);
+  h.frame(45000);
   assert.equal(h.game.state.mode, 'ended');
   assert.equal(h.game.state.timeLeft, 0);
-  assert.equal(h.endings[0].elapsed, 60);
+  assert.equal(h.endings[0].elapsed, 90);
 });
 
 test('pausing freezes timers, clears controls, and hidden documents pause the game', t => {
@@ -422,7 +491,7 @@ test('Pré-Op: the radio appears once, adds fifteen seconds, and never reopens a
   const elapsed = s.elapsed;
   h.game.update(2.399); assert.equal(s.mode, 'playing');
   assert.equal(s.elapsed, elapsed, 'accepted closure freezes the deadline during its animation');
-  h.game.update(0.001); assert.equal(s.mode, 'ended');
+  h.game.update(0.001); settleVictory(h);
   assert.equal(h.endings[0].success, true);
   assert.match(h.endings[0].reason, /TAP aprovada \(FIC concluída\)/);
 });
@@ -444,7 +513,7 @@ test('Pré-Op: all six system orders preserve completed work and permit final cl
     assert.equal(mission.bonusSeconds, 15);
     assert.ok(mission.stations.every(station => station.done));
     preopOpen(h, 'board'); assert.equal(h.game.finishPreop(), true);
-    h.game.update(2.4); assert.equal(h.endings.at(-1).success, true);
+    h.game.update(2.4); settleVictory(h); assert.equal(h.endings.at(-1).success, true);
   }
 });
 
@@ -504,6 +573,25 @@ function preopRouteOpen(h, id) {
   h.game.update(.5); // Allow time to read the local interaction.
 }
 
+test('IEEI: normal controls reach all surfaces including the support, with time for localized treatment', t => {
+  const h = harness(t); h.game.start('ieei');
+  const s = h.game.state;
+  movePreopTo(h, 470);
+  assert.equal(h.game.interactRepair('rust-1'), true);
+  finishRepair(h, s.rust[0], .15);
+  movePreopTo(h, 1389); climbPreop(h, 350); movePreopTo(h, 1600);
+  assert.equal(h.game.interactRepair('rust-2'), true);
+  finishRepair(h, s.rust[1], .15);
+  movePreopTo(h, 2820);
+  assert.equal(h.game.interactRepair('rust-3'), true);
+  finishRepair(h, s.rust[2], .15);
+  assert.equal(s.correct, 3); assert.equal(s.score, 300);
+  assert.ok(s.elapsed < 90, `elapsed ${s.elapsed}`);
+  settleVictory(h);
+  assert.equal(h.endings[0].success, true);
+  t.diagnostic(`IEEI route accepted after ${s.elapsed.toFixed(2)}s including 150ms per localized treatment stroke.`);
+});
+
 test('Pré-Op: all systems, elevated field evidence, radio revision and return are beatable with normal controls', t => {
   const h = harness(t); h.game.start('preop'); h.frame();
   const s = h.game.state;
@@ -527,7 +615,7 @@ test('Pré-Op: all systems, elevated field evidence, radio revision and return a
   assert.equal(h.game.deliverEvidence('radio-revision'), true); h.game.closeInteraction();
   assert.equal(s.correct, 3); assert.equal(s.mode, 'playing');
   movePreopTo(h, 190); preopRouteOpen(h, 'board'); assert.equal(h.game.finishPreop(), true);
-  h.game.update(2.4);
+  h.game.update(2.4); settleVictory(h);
   assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason);
   assert.ok(s.elapsed < 135, `elapsed ${s.elapsed}`);
   t.diagnostic(`Pre-Op route accepted after ${s.elapsed.toFixed(2)}s including panel reading delays.`);
@@ -547,13 +635,70 @@ test('destroy removes input listeners and cancels RAF', t => {
   assert.equal(h.frames.size, 0);
 });
 
-test('pure rules preserve exact boundaries and reject invalid work samples', () => {
+test('all five victories celebrate before publishing one result, freezing time and input', t => {
+  const h = harness(t);
+  for (const stage of ['sms','ieei','ied','pspo','preop']) {
+    h.game.start(stage); h.game.update(.5);
+    const s = h.game.state;
+    s.score = 123; s.correct = 3;
+    const elapsed = s.elapsed, timeLeft = s.timeLeft, position = {...s.player};
+    const before = h.endings.length, soundBefore = h.sounds.filter(event => event.type === 'victory').length;
+    h.game.end(true, 'Concluído!');
+    assert.equal(s.mode, 'celebrating');
+    assert.equal(s.activeTarget, null);
+    assert.equal(h.endings.length, before);
+    h.game.end(true, 'Duplicado'); h.game.end(false, 'Tardio');
+    assert.equal(h.sounds.filter(event => event.type === 'victory').length, soundBefore + 1);
+    h.key('ArrowRight'); h.key('Space'); h.game.setControl('ArrowRight', true);
+    h.game.update(.5); h.frame();
+    assert.equal(s.elapsed, elapsed); assert.equal(s.timeLeft, timeLeft);
+    assert.equal(s.player.x, position.x); assert.equal(s.player.y, position.y);
+    assert.equal(h.game.keys.size, 0);
+    assert.equal(h.endings.length, before);
+    h.game.update(s.celebration.duration - s.celebration.elapsed);
+    assert.equal(s.mode, 'ended'); assert.equal(h.endings.length, before + 1);
+    assert.equal(h.endings.at(-1).score, 123);
+    assert.equal(h.endings.at(-1).elapsed, elapsed);
+    assert.equal(h.endings.at(-1).reason, 'Concluído!');
+    h.game.update(10); h.game.end(true, 'Duplicado');
+    assert.equal(h.endings.length, before + 1);
+  }
+});
+
+test('celebrations pause on hidden tabs and resume without skipping to the score menu', t => {
+  const h = harness(t); h.game.start('ieei');
+  h.game.end(true, 'Concluído!'); h.game.update(.7);
+  document.hidden = true; h.documentListeners.get('visibilitychange')();
+  assert.equal(h.game.state.mode, 'paused');
+  h.game.update(30); assert.equal(h.game.state.celebration.elapsed, .7);
+  assert.equal(h.endings.length, 0);
+  document.hidden = false; h.game.pause(false);
+  assert.equal(h.game.state.mode, 'celebrating');
+  h.game.update(.5); assert.ok(h.game.state.celebration.elapsed > .7);
+  assert.equal(h.endings.length, 0);
+  settleVictory(h); assert.equal(h.endings.length, 1);
+});
+
+test('restart, stage changes and destroy cancel pending celebrations; defeat is immediate', t => {
+  const h = harness(t); h.game.start('ieei');
+  h.game.end(true, 'Vitória antiga'); h.game.update(.5);
+  h.game.start('ieei'); h.game.update(3);
+  assert.equal(h.game.state.mode, 'playing'); assert.equal(h.endings.length, 0);
+  h.game.end(true, 'Outra vitória'); h.game.start('pspo'); h.game.update(3);
+  assert.equal(h.endings.length, 0);
+  h.game.end(false, 'Derrota');
+  assert.equal(h.game.state.mode, 'ended'); assert.equal(h.endings.length, 1);
+  assert.equal(h.endings[0].success, false);
+  h.game.start('sms'); h.game.end(true, 'Não publicar'); h.game.destroy(); h.frame(5000);
+  assert.equal(h.endings.length, 1);
+  assert.equal(h.frames.size, 0);
+});
+
+test('pure rules preserve observation and deadline boundaries', () => {
   const worker = { risk: 'helmet', corrected: false, recorded: false, visibleSince: 10 };
   assert.equal(observationOutcome(worker, 11.999, 4, 4).won, true);
   assert.equal(observationOutcome(worker, 12, 0, 0).failed, true);
   assert.equal(observationOutcome({ ...worker, recorded: true }, 10, 2, 2).type, 'duplicate');
-  for (const movement of [0, -5, NaN, Infinity]) assert.equal(treatmentOutcome(0, 0, 0, movement).progress, 0);
-  assert.equal(treatmentOutcome(0, 1, 0, 45).progress, 0);
   assert.equal(tapOutcome(0, 2).penalty, 5);
   assert.equal(tapOutcome(2, 2).completed, true);
   assert.equal(deadlineExpired(59.999, 60), false);
@@ -643,11 +788,13 @@ test('PSPO: reaching the copa is not victory until a nearby coffee is collected'
   assert.equal(s.office.coffee.collected, true);
   assert.equal(s.office.progress, 1);
   assert.equal(s.correct, 1);
+  settleVictory(h);
   assert.equal(h.endings[0].success, true);
   assert.equal(h.endings[0].distance, coffee.x - 165);
   h.game.start('pspo');
   h.game.state.player.x = h.game.state.office.coffee.x - 100;
   h.game.setControl('KeyE', true);
+  settleVictory(h);
   assert.equal(h.game.state.mode, 'ended', 'touch control follows the same coffee collection path');
 });
 
@@ -748,6 +895,7 @@ function playOfficeRoute(h, { collect = true, specialReactionDelay = 0.2, rush =
       else { h.game.setControl('ArrowRight', false); break; }
     }
   }
+  if (s.mode === 'celebrating') settleVictory(h);
   return { origins, crossed, cues, jumps };
 }
 
@@ -1050,6 +1198,7 @@ test('IED: all three machines and moving platforms are beatable in under 90 seco
     h.game.setControl('Space', false);
     s.platforms.forEach((platform, index) => { if (Math.abs(platform.y - platform.baseY) > 1) movedPlatforms.add(index); });
   }
+  settleVictory(h);
   assert.equal(h.endings[0]?.success, true, h.endings[0]?.reason || `stuck at ${s.player.x}`);
   assert.ok(s.elapsed < 90);
   assert.equal(s.dynamic.completed, 3);

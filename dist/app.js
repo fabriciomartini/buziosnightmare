@@ -3,13 +3,14 @@ import { drawGame, drawPortrait } from './renderer.js';
 import { drawIEDChallenge } from './ied-renderer.js';
 import { GameAudio } from './audio.js';
 import { PreopUI } from './preop-ui.js';
+import { RepairUI } from './repair-ui.js';
 
 const $ = id => document.getElementById(id);
 const sequence = ['sms', 'ieei', 'ied', 'pspo', 'preop'];
 const STORAGE = 'buzios-nightmare-v1';
 const levels = {
   sms: { number: '01', department: 'SMS', title: 'Olho no desvio', person: 'Jaqueline', role: 'Segurança, Meio Ambiente e Saúde', short: 'Um olhar atento faz toda a diferença.', color: '#b6d477', objective: 'Registre 5 desvios', goal: 5, story: 'Jaqueline chegou ao convés. Alguns trabalhadores estão sem EPI, mas se ajeitam assim que percebem sua presença. Observe rápido e registre apenas desvios reais na prancheta de auditoria comportamental.', rules: ['Caminhe com as setas e clique nos trabalhadores com desvio.', 'Você tem 2 segundos antes que cada trabalhador corrija o EPI.', 'Registre 5 desvios. Cada acerto vale +1; falso registro vale −1. Placar negativo encerra a tentativa.'], meta: 'Sem limite geral de tempo · As oportunidades de observação são únicas por tentativa.' },
-  ieei: { number: '02', department: 'IEEI', title: 'Ferrugem, aqui não!', person: 'José Roberto', role: 'Integração de Equipamentos Estáticos e Inspeção', short: 'A corrosão não tira folga. Você também não.', color: '#efc775', objective: 'Recupere 3 pontos', goal: 3, story: 'A maresia não deu trégua à P-83. José Roberto tem um minuto para encontrar e recuperar três pontos de corrosão espalhados pelo convés. Cada tratamento precisa acontecer na ordem certa.', rules: ['Aproxime-se do ponto enferrujado e clique nele.', 'Escolha: jato d’água → escova → neutralizador → pintura.', 'Segure e arraste sobre a área central até completar cada etapa. Recupere os 3 pontos em menos de 60 segundos.'], meta: '60 segundos · O cronômetro continua durante o tratamento. Sequência simplificada exclusivamente para a dinâmica do jogo.' },
+  ieei: { number: '02', department: 'IEEI', title: 'Ferrugem, aqui não!', person: 'José Roberto', role: 'Integração de Equipamentos Estáticos e Inspeção', short: 'A corrosão não tira folga. Você também não.', color: '#efc775', objective: 'Recupere 3 pontos', goal: 3, story: 'José Roberto tem 90 segundos para recuperar uma linha de processo, um suporte na passarela e um vaso de pressão. Cada ferramenta tem seu gesto: lave, escove, aplique e pinte. A P-83 vai ficar de cara nova!', rules: ['Aproxime-se e pressione E ou clique no ponto. Use a escada para alcançar o suporte na passarela.', 'Escolha as ferramentas com 1–4 ou pelos botões: jato → escova → neutralizador → pintura.', 'Varra a sujeira, escove de um lado para o outro, aplique nas 3 regiões e cubra com tinta. Complete os 3 reparos em 90 segundos.'], meta: 'Tutorial antes do cronômetro · Cobertura de 95% conclui a etapa · Progresso parcial preservado. Sequência simplificada para o jogo.' },
   ied: { number: '03', department: 'IED', title: 'Segura essa vibração!', person: 'Willian', role: 'Integração de Equipamentos Dinâmicos', short: 'Três máquinas. Um turno. Encontre o ritmo.', color: '#9fcebf', objective: 'Integre 3 conjuntos', goal: 3, story: 'O convés da P-83 está fora de compasso: bombas e compressores tremem e sacodem as passarelas. Atravesse a área, alinhe os eixos e estabilize a rotação de três conjuntos. Cada máquina integrada libera a próxima passagem. Vamos colocar essa turma na mesma rotação!', rules: ['Caminhe com ← →, pule com espaço e clique na máquina quando estiver perto.', 'Alinhe os eixos: aperte espaço ou Alinhar quando as marcas coincidirem. Acerte 3 vezes; cada erro custa 3 segundos.', 'Depois use ← → para manter o ponteiro na faixa verde durante 4 segundos seguidos. Integre os 3 conjuntos em menos de 90 segundos.'], meta: '90 segundos · O relógio continua nos desafios · Sair da faixa verde interrompe a estabilidade; desvios de rotação podem custar 2 segundos. Representação cartunesca de integração.' },
   pspo: { number: '04', department: 'PSPO', title: 'PSPO - Fuja dos forms de viagem!', person: 'Anderson', role: 'Planejamento e Suporte para Operação', short: 'Entre você e o café: uma chuva de forms.', color: '#84bbc3', objective: 'Chegue à copa e pegue o café', goal: 1, story: '12º andar, Torre B do EDISEN. Anderson só queria uma pausa, mas os formulários de viagens internacionais do IED, IEEI, SMS e Pré-Op/P-83 não param de chegar! O caminho até a copa ficou maior, e duas demandas especiais prometem perseguir essa pausa: Remarcação de retorno e Urgente. Saia da baia e conquiste aquele café.', rules: ['Corra com ← →, pule mesas com espaço ou ↑ e use ↓ para se abaixar.', 'Remarcação de retorno e Urgente aparecem uma vez cada por tentativa: alerta breve, chegada próxima e menos tempo para reagir. Desvie dos forms; o terceiro impacto encerra a tentativa.', 'Chegue à copa e pressione E ou clique na máquina automática para pegar o café.'], meta: '3 impactos e acabou · 2 encontros especiais, uma vez cada · Sem limite de tempo · Cenário cartunesco inspirado em referências públicas do EDISEN; disposição interna fictícia.' },
   preop: { number: '05', department: 'Pré-Op / P-83', title: 'Só falta uma pendência!', person: 'Fabrício', role: 'Pré-operação da P-83', short: 'Encontre. Confira. Feche a TAP.', color: '#c2b9d9', objective: 'Resolva 3 pendências e volte ao terminal', goal: 3, story: 'A reunião está chegando e três sistemas estão quase prontos. Fabrício precisa encontrar uma identificação, registrar evidências de campo e conferir a documentação. Escolha sua rota pelo convés, organize a prancheta e feche as TAPs. Pelo rádio, alguém garante: agora é só fechar a documentação…', rules: ['Use as setas e espaço para explorar. Perto de um ponto, pressione E ou clique para interagir.', 'Óleo: encontre a placa certa. Gás: registre os 3 pontos. Água: confira revisão e assinatura. Carregue até 2 evidências; arraste ou selecione e entregue no sistema correspondente.', 'Você tem 120 segundos. Entrega incorreta custa 5s. Uma chamada traz uma revisão extra e +15s. Conclua os 3 sistemas e volte ao terminal inicial para fechar as TAPs.'], meta: 'Prancheta: 2 espaços · Uma chamada pelo rádio · Marco final: TAP aprovada (FIC concluída).' }
@@ -18,9 +19,10 @@ let save = { completed: [], best: {} };
 try { const parsed = JSON.parse(localStorage.getItem(STORAGE)); if (parsed && Array.isArray(parsed.completed)) save = { completed: parsed.completed.filter(x => sequence.includes(x)), best: parsed.best || {} }; } catch { /* Storage may be unavailable in private mode. */ }
 let mode = 'campaign', activeStage = null, game = null, selectedStage = null, result = null, pauseCause = null, lastFeedback = '';
 const audio = new GameAudio();
-let audioMode = null, soundWanted = true;
+let audioMode = null, soundWanted = true, repairIntroSeen = false;
 try { soundWanted = localStorage.getItem('buzios-audio') !== 'off'; const volume = Number(localStorage.getItem('buzios-volume')); if (localStorage.getItem('buzios-volume') !== null) audio.setVolume(volume); } catch {}
 const preopUI = new PreopUI({ getGame: () => game, onPause: () => pauseGame() });
+const repairUI = new RepairUI({ getGame: () => game });
 const persist = () => { try { localStorage.setItem(STORAGE, JSON.stringify(save)); } catch { /* Gameplay works without persistence. */ } };
 const nextCampaign = () => sequence.find(id => !save.completed.includes(id)) || 'sms';
 const unlocked = id => mode === 'free' || save.completed.includes(id) || sequence.indexOf(id) === 0 || sequence.slice(0, sequence.indexOf(id)).every(x => save.completed.includes(x));
@@ -72,15 +74,16 @@ function brief(id) {
  showDialog('brief-dialog');
 }
 function start(id) {
- closeAll(); pauseCause = null; activeStage = id; audioMode = null; preopUI.reset(); audio.start(id); if (soundWanted) audio.enable().then(() => { syncAudioButton(); if (game?.getSnapshot()?.mode === 'paused') audio.pause(); }); lastFeedback = ''; result = null;
+ if (id === 'ieei' && !repairIntroSeen) { closeAll(); showDialog('repair-tutorial'); return; }
+ closeAll(); pauseCause = null; activeStage = id; audioMode = null; preopUI.reset(); repairUI.reset(); audio.start(id); if (soundWanted) audio.enable().then(() => { syncAudioButton(); if (game?.getSnapshot()?.mode === 'paused') audio.pause(); }); lastFeedback = ''; result = null;
  $('home-screen').hidden = true; $('game-screen').hidden = false; document.body.classList.add('in-game');
  const l = levels[id]; $('game-department').textContent = `${l.department} / ${mode === 'campaign' ? 'CAMPANHA' : 'LIVRE'}`; $('game-title').textContent = l.title;
  $('hud-person').textContent = l.person.toUpperCase(); $('hud-objective').textContent = l.objective;
  $('metric-label').textContent = id === 'sms' ? 'PLACAR' : id === 'pspo' ? 'ATÉ A COPA' : 'TEMPO';
  $('office-route').hidden = id !== 'pspo';
- $('coffee-touch').hidden = !['pspo','preop'].includes(id);
- $('coffee-touch').textContent = id === 'preop' ? 'Interagir · E' : 'Café';
- $('coffee-touch').setAttribute('aria-label', id === 'preop' ? 'Interagir com o ponto próximo' : 'Pegar café');
+ $('coffee-touch').hidden = !['pspo','preop','ieei'].includes(id);
+ $('coffee-touch').textContent = id !== 'pspo' ? 'Interagir · E' : 'Café';
+ $('coffee-touch').setAttribute('aria-label', id !== 'pspo' ? 'Interagir com o ponto próximo' : 'Pegar café');
  $('preop-hud').hidden = id !== 'preop';
  document.querySelector('[data-key="ArrowUp"]').setAttribute('aria-label', ['pspo','ied'].includes(id) ? 'Pular' : 'Subir');
  document.querySelector('[data-key="ArrowDown"]').setAttribute('aria-label', id === 'pspo' ? 'Abaixar' : 'Descer');
@@ -91,6 +94,7 @@ function start(id) {
  $('game-canvas').setAttribute('aria-label', id === 'pspo' ? 'Escritório do EDISEN. Setas para correr, espaço para pular mesas, seta para baixo para abaixar e E ou clique na máquina para pegar café. Evite o terceiro formulário.' : id === 'ied' ? 'Convés da P-83. Setas para caminhar, espaço para pular passarelas. Aproxime-se e clique nas máquinas para alinhar e sincronizar.' : 'Área de jogo. Setas para caminhar e subir escadas, espaço para pular e mouse para interagir.');
  $('control-legend').innerHTML = id === 'pspo' ? '<span><kbd>←</kbd><kbd>→</kbd> correr</span><span><kbd>espaço</kbd><kbd>↑</kbd> pular</span><span><kbd>↓</kbd> abaixar</span><span><kbd>E</kbd> ou clique · café</span>' : '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span>◉ clicar para interagir</span>';
  if (id === 'preop') { $('control-legend').innerHTML = '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span><kbd>E</kbd> ou clique · interagir</span>'; $('game-canvas').setAttribute('aria-label','Convés da P-83. Fabrício procura evidências para óleo, gás e água. Setas para andar e subir escadas, espaço para pular, E ou clique para interagir. Volte ao terminal após resolver os três sistemas.'); }
+ if (id === 'ieei') { $('control-legend').innerHTML = '<span><kbd>←</kbd><kbd>→</kbd> mover</span><span><kbd>↑</kbd><kbd>↓</kbd> escadas</span><span><kbd>espaço</kbd> pular</span><span><kbd>E</kbd> interagir</span><span><kbd>1–4</kbd> ferramentas</span>'; $('game-canvas').setAttribute('aria-label', 'José Roberto recupera três pontos em 90 segundos. Setas para andar e subir escadas, espaço para pular. E ou clique próximo para tratar. O suporte fica na passarela.'); }
  if (id === 'ied') $('control-legend').innerHTML = '<span><kbd>←</kbd><kbd>→</kbd> mover / ajustar</span><span><kbd>espaço</kbd> pular / alinhar</span><span>◉ clicar na máquina</span>';
  $('game-footnote').textContent = id === 'pspo' ? 'EDISEN · Torre B · 12º andar — interpretação cartunesca; disposição interna fictícia.' : 'Uma aventura fictícia na P-83. As interações são simplificações para o jogo.';
  $('audit-panel').hidden = id !== 'sms'; $('audit-panel').open = false;
@@ -98,14 +102,14 @@ function start(id) {
  game.start(id); $('game-canvas').focus(); window.scrollTo(0,0);
 }
 function goHome() {
- audio.stop(); audioMode = null; preopUI.reset(); closeAll(); if (game) { game.destroy(); game = null; }
- activeStage = null; pauseCause = null; dragging = false;
+ audio.stop(); audioMode = null; preopUI.reset(); repairUI.reset(); closeAll(); if (game) { game.destroy(); game = null; }
+ activeStage = null; pauseCause = null;
  $('game-screen').hidden = true; $('home-screen').hidden = false; document.body.classList.remove('in-game'); renderMenu(); window.scrollTo(0,0);
 }
 function update(s) {
  if (!s || !activeStage) return;
  const l = levels[s.stageId];
- if (s.mode !== audioMode) { if (s.mode === 'paused') audio.pause(); else if (s.mode === 'playing' && audioMode === 'paused') audio.resume(); audioMode = s.mode; }
+ if (s.mode !== audioMode) { if (s.mode === 'paused') audio.pause(); else if (['playing','celebrating'].includes(s.mode) && audioMode === 'paused') audio.resume(); audioMode = s.mode; }
  if (s.preop) preopUI.updateHUD(s);
  if (s.stageId === 'sms') $('audit-list').innerHTML = s.auditLog.length ? s.auditLog.map((entry,i) => `<li>Registro ${i+1} · ${entry.label} · ${entry.time.toFixed(1)}s</li>`).join('') : '<li class="empty-record">Nenhum desvio registrado. Observe os EPIs no convés.</li>';
  if (s.stageId === 'pspo') {
@@ -122,15 +126,15 @@ function update(s) {
   $('metric-value').textContent = s.timeLeft === null ? s.score : `${Math.ceil(s.timeLeft)}s`;
   $('metric-value').parentElement.classList.toggle('danger', s.timeLeft !== null && s.timeLeft <= 15);
  }
- const feedback = s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : s.stageId === 'pspo' ? 'O café está no fim do corredor. Pule as mesas e desvie dos forms!' : s.stageId === 'ied' ? 'Aproxime-se da próxima máquina. Alinhe os eixos e encontre a rotação certa!' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
+ const feedback = s.mode === 'celebrating' ? `${l.person} comemora a missão cumprida! A pontuação aparece em instantes.` : s.feedback?.text && s.feedback.until >= s.elapsed ? s.feedback.text : s.stageId === 'sms' ? 'A prancheta está pronta. Continue pelo convés e observe os EPIs.' : s.stageId === 'pspo' ? 'O café está no fim do corredor. Pule as mesas e desvie dos forms!' : s.stageId === 'ied' ? 'Aproxime-se da próxima máquina. Alinhe os eixos e encontre a rotação certa!' : 'Explore o convés. Aproxime-se de um ponto destacado para interagir.';
  if ($('game-feedback').textContent !== feedback) $('game-feedback').textContent = feedback; $('game-feedback').dataset.tone = s.feedback.until >= s.elapsed ? s.feedback.tone : 'info';
  if (feedback !== lastFeedback) lastFeedback = feedback;
  if (s.mode === 'paused' && pauseCause !== 'help' && !$('pause-dialog').open) showDialog('pause-dialog');
  if (s.activeTarget) updateInteraction(s);
- else if ($('interaction-dialog').open) { stopIEDDraw(); $('interaction-dialog').close(); dragging = false; if(s.mode === 'playing') $('game-canvas').focus(); }
+ else if ($('interaction-dialog').open) { stopIEDDraw(); $('interaction-dialog').close(); repairUI.reset(); if(s.mode === 'playing') $('game-canvas').focus(); }
 }
 function end(outcome) {
- result = outcome; dragging = false; closeAll(); const l = levels[outcome.stageId];
+ result = outcome; repairUI.reset(); closeAll(); const l = levels[outcome.stageId];
  if (outcome.success) {
   if (mode === 'campaign' && !save.completed.includes(outcome.stageId)) save.completed.push(outcome.stageId);
   const best = save.best[outcome.stageId]; if (!best || outcome.elapsed < best) save.best[outcome.stageId] = outcome.elapsed; persist();
@@ -141,22 +145,23 @@ function end(outcome) {
  $('result-title').textContent = outcome.success ? campaignDone ? 'Turno de respeito!' : outcome.stageId === 'pspo' ? 'Café conquistado!' : outcome.stageId === 'ied' ? 'Na mesma rotação!' : outcome.stageId === 'preop' ? 'Pendências encerradas!' : 'Boa, equipe!' : outcome.stageId === 'pspo' ? 'Papelada demais!' : 'Vamos de novo?';
  $('result-message').textContent = campaignDone ? 'As cinco gerências, um só time! SMS, IEEI, IED, PSPO e Pré-Op/P-83: campanha concluída.' : outcome.reason;
  $('result-stats').innerHTML = outcome.stageId === 'pspo' ? `<span><strong>${game.getSnapshot().office.hits} / 3</strong>impactos</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de corrida</span>` : `<span><strong>${outcome.correct} / ${l.goal}</strong>${outcome.stageId === 'sms' ? 'registros' : 'concluídos'}</span><span><strong>${Math.ceil(outcome.elapsed)}s</strong>de missão</span>`;
+ $('result-stats').insertAdjacentHTML('afterbegin', `<span><strong>${outcome.score}</strong>pontos</span>`);
  $('result-next').innerHTML = `${!outcome.success ? 'Recomeçar fase' : mode === 'campaign' && !campaignDone ? 'Próxima missão' : 'Jogar novamente'} <span>${outcome.success ? '➜' : '↻'}</span>`;
  showDialog('result-dialog');
 }
-function pauseGame() { if (game?.getSnapshot()?.mode === 'playing') { pauseCause = 'pause'; game.pause(true); } }
+function pauseGame() { if (['playing','celebrating'].includes(game?.getSnapshot()?.mode)) { pauseCause = 'pause'; game.pause(true); } }
 function resume() { if ($('pause-dialog').open) $('pause-dialog').close(); pauseCause = null; game?.pause(false); if ($('interaction-dialog').open && game?.getSnapshot()?.activeTarget?.type === 'dynamic') { $('dynamic-canvas').focus(); startIEDDraw(); } else if (!$('interaction-dialog').open) $('game-canvas').focus(); }
-function help() { if(game?.getSnapshot()?.mode === 'playing') {pauseCause = 'help';game.pause(true);} showDialog('help-dialog'); }
+function help() { if(['playing','celebrating'].includes(game?.getSnapshot()?.mode)) {pauseCause = 'help';game.pause(true);} showDialog('help-dialog'); }
 $('help-dialog').addEventListener('close', () => {if(pauseCause === 'help') { pauseCause = null;game?.pause(false); }});
 
 
-const toolNames = ['Jato d’água','Escova','Neutralizador','Pintura'], toolIcons = ['water','brush','neutral','paint'];
-$('tool-grid').innerHTML = toolNames.map((name,i)=>`<button class="tool-button" data-tool="${i}"><em>${i+1}</em>${icon(toolIcons[i])}<span>${name}</span></button>`).join('');
 function interaction({type,target,state}) {
- dragging = false;
+ repairUI.reset();
  $('repair-content').hidden = type !== 'repair'; $('dynamic-content').hidden = type !== 'dynamic'; $('preop-content').hidden = type !== 'preop';
  $('interaction-dialog').classList.toggle('dynamic-dialog', type === 'dynamic');
  $('interaction-dialog').classList.toggle('preop-dialog', type === 'preop');
+ $('interaction-dialog').classList.toggle('repair-dialog', type === 'repair');
+ if (type === 'repair') { $('interaction-eyebrow').textContent = `IEEI / PONTO ${state.rust.indexOf(target)+1} DE 3`; $('interaction-title').textContent = target.label; $('interaction-intro').textContent = 'Cada ferramenta tem seu gesto. Trate a superfície destacada.'; repairUI.open(target,state); updateInteraction(state); showDialog('interaction-dialog'); return; }
  if (type === 'preop') { preopUI.open(target,state); updateInteraction(state); showDialog('interaction-dialog'); return; }
  if (type === 'dynamic') {
   $('interaction-eyebrow').textContent = `IED / CONJUNTO ${target.index + 1} DE 3`;
@@ -175,18 +180,7 @@ function updateInteraction(s) {
  $('interaction-time').textContent = `${Math.ceil(s.timeLeft)}s restantes`;
  const status = s.feedback?.text || ''; if ($('interaction-status').textContent !== status) $('interaction-status').textContent = status;
  if (s.activeTarget.type === 'dynamic') { updateIEDPanel(s, target); return; }
- if (s.activeTarget.type === 'repair') {
-  document.querySelectorAll('[data-tool]').forEach(btn => { const n=Number(btn.dataset.tool); btn.classList.toggle('done',n<target.step);btn.classList.toggle('active',n===s.selectedTool);btn.disabled=n<target.step;btn.setAttribute('aria-pressed',n===s.selectedTool); });
-  const pct = Math.round((target.progress || 0)*100);
-  $('work-percent').textContent = `${pct}%`; $('work-progress-fill').style.width=`${pct}%`;
-  document.querySelector('.work-progress').setAttribute('aria-valuenow',pct);
-  $('work-label').textContent = `Etapa ${Math.min(target.step+1,4)} de 4 · ${toolNames[target.step] || 'Concluído'}`;
-  $('work-prompt').textContent = s.selectedTool === null ? `Selecione: ${toolNames[target.step]}` : 'Segure e esfregue na área central';
-  $('rust-art').style.opacity = target.step < 1 ? 1 : target.step === 1 ? 1 - target.progress*.92 : .08;
-  $('paint-art').style.opacity = target.step === 3 ? target.progress : 0;
-  $('work-area').classList.toggle('working',s.selectedTool !== null);
-  $('tool-cursor').innerHTML = s.selectedTool === null ? '' : icon(toolIcons[s.selectedTool]);
- }
+ if (s.activeTarget.type === 'repair') repairUI.update(s);
 }
 let iedAnimation = 0;
 function stopIEDDraw() { if (iedAnimation) cancelAnimationFrame(iedAnimation); iedAnimation = 0; }
@@ -223,20 +217,6 @@ for (const button of document.querySelectorAll('[data-ied-control]')) {
  button.addEventListener('pointerdown',e => {e.preventDefault(); button.setPointerCapture(e.pointerId); game?.setControl(button.dataset.iedControl,true);});
  for (const event of ['pointerup','pointercancel','lostpointercapture']) button.addEventListener(event,() => game?.setControl(button.dataset.iedControl,false));
 }
-let dragging=false, lastPoint=null;
-const area = $('work-area');
-area.addEventListener('pointerdown',e=>{if(e.button>0 || !game?.getSnapshot()?.activeTarget)return;dragging=true;lastPoint={x:e.clientX,y:e.clientY};area.setPointerCapture(e.pointerId);e.preventDefault();});
-area.addEventListener('pointermove',e=>{
- const r=area.getBoundingClientRect(), x=e.clientX-r.left,y=e.clientY-r.top;
- $('tool-cursor').style.left=`${x}px`;$('tool-cursor').style.top=`${y}px`;$('tool-cursor').style.display='block';
- if(!dragging || !lastPoint)return;
- const distance=Math.hypot(e.clientX-lastPoint.x,e.clientY-lastPoint.y)*600/r.width;lastPoint={x:e.clientX,y:e.clientY};
- if(x/r.width>.31 && x/r.width<.69 && y/r.height>.19 && y/r.height<.83)game?.work(distance);
-});
-const release = ()=>{dragging=false;lastPoint=null;};
-area.addEventListener('pointerup',release);area.addEventListener('pointercancel',release);area.addEventListener('lostpointercapture',release);
-area.addEventListener('pointerleave',()=>{$('tool-cursor').style.display='none';});
-$('tool-grid').addEventListener('click',e=>{const btn=e.target.closest('[data-tool]');if(btn) game?.chooseTool(Number(btn.dataset.tool));});
 $('interaction-close').onclick=()=>game?.closeInteraction();
 $('interaction-dialog').addEventListener('cancel',e=>{e.preventDefault();game?.closeInteraction();});
 $('pause-dialog').addEventListener('cancel',e=>{e.preventDefault();resume();});
@@ -248,6 +228,9 @@ $('campaign-start').onclick=()=>{setMode('campaign');brief(nextCampaign());};
 $('free-start').onclick=()=>{setMode('free');$('mission-heading').scrollIntoView({behavior:'smooth',block:'center'});};
 $('mission-grid').onclick=e=>{const card=e.target.closest('[data-stage]');if(card && !card.disabled)brief(card.dataset.stage);};
 $('brief-play').onclick=()=>start(selectedStage);
+$('repair-tutorial-start').onclick=()=>{repairIntroSeen=true;start('ieei');};
+$('repair-tutorial-back').onclick=()=>{$('repair-tutorial').close();brief('ieei');};
+for (const [i, name] of ['water','brush','neutral','paint'].entries()) $('repair-demo-'+i).innerHTML=icon(name);
 $('back-home').onclick=pauseGame;$('pause-game').onclick=pauseGame;
 $('pause-home').onclick=goHome;$('result-home').onclick=goHome;
 $('resume-game').onclick=resume;$('restart-game').onclick=()=>start(activeStage);
@@ -265,7 +248,7 @@ for(const button of document.querySelectorAll('[data-key]')){
  button.addEventListener('pointerdown',e=>{e.preventDefault();button.setPointerCapture(e.pointerId);game?.setControl(button.dataset.key,true);});
  for(const event of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(event,()=>game?.setControl(button.dataset.key,false));
 }
-window.addEventListener('blur',release);
+window.addEventListener('blur',()=>repairUI.reset());
 
 const preview = { stageId:'sms',mode:'paused',worldWidth:3400,camera:120,elapsed:0,player:{x:330,y:500,vx:0,vy:0,facing:1,walking:false},platforms:[{x:750,y:430,w:135,h:70}],ladders:[],workers:[{id:'preview-1',x:620,y:500,risk:null,corrected:true,recorded:false,visibleSince:null},{id:'preview-2',x:1020,y:500,risk:null,corrected:true,recorded:false,visibleSince:null}],rust:[],stations:[],particles:[],activeTarget:null,score:0,correct:0,timeLeft:null,stageLabel:'P-83'};
 drawGame($('hero-canvas').getContext('2d'),preview,0);

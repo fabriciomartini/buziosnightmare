@@ -4,7 +4,7 @@ Jogo de plataforma no navegador sobre os desafios cotidianos da IPO/Búzios, amb
 
 ## Jogar
 
-Versão hospedada: https://buzios-nightmare.blushtetra23.chatgpt.site (acesso privado do proprietário).
+Versão hospedada: https://buzios-nightmare.blushtetra23.chatgpt.site (acesso público, sem login).
 
 Sem dependências, cadastro ou servidor de aplicação. Para executar localmente:
 
@@ -19,7 +19,7 @@ Abra `http://localhost:8080`. Sirva os arquivos por HTTP: abrir o HTML diretamen
 | Gerência | Personagem | Dinâmica |
 |---|---|---|
 | SMS | Jaqueline | Registrar cinco desvios reais de EPI; trabalhadores corrigem o desvio dois segundos após aparecerem. Acerto +1; falso registro −1; placar negativo encerra a tentativa. |
-| IEEI | José Roberto | Recuperar três pontos em menos de 60s: jato d’água, escova, neutralizador, pintura. Cada etapa exige segurar e arrastar o mouse sobre a corrosão. |
+| IEEI | José Roberto | Recuperar uma linha, um suporte na passarela e um vaso em 90s. Jato por varredura, escova de ida e volta, neutralizador em três regiões e pintura por cobertura. Tutorial antes do cronômetro; conclusão com 95% de cobertura. |
 | IED | Willian | **Segura essa vibração!** Integrar motor e bomba, compressor e conjunto final em 90s. Três acertos de alinhamento e quatro segundos de rotação estável por máquina; passarelas e portões se estabilizam/liberam conforme o avanço. |
 | PSPO | Anderson | Correr da baia até a copa do 12º andar da Torre B do EDISEN, saltar mesas e desviar dos formulários. Percurso ampliado com dois forms especiais — Remarcação de retorno e Urgente — que aparecem uma vez cada por tentativa. Derrota no terceiro impacto; vitória ao pegar café na máquina. |
 | Pré-Op / P-83 | Fabrício | **Só falta uma pendência!** Encontrar a placa do óleo, registrar três pontos do gás e conferir a documentação da água. Prancheta com dois espaços; uma revisão extra pelo rádio (+15s). Resolver os três sistemas e retornar ao terminal em 120s; entrega incorreta custa 5s. |
@@ -31,6 +31,7 @@ As sequências são simplificações lúdicas, sem valor de procedimento de enge
 - `←` / `→`: mover; `Espaço`: pular; `↑` / `↓`: subir/descer escadas. WASD também funciona.
 - Mouse: registrar trabalhadores, abrir pontos de corrosão/sistemas e aplicar tratamentos.
 - No PSPO, `↓`/`S` abaixa e `E` ou um clique próximo à máquina pega o café. Mesas bloqueiam a passagem lateral e devem ser saltadas. Formulários têm origem IED, IEEI, SMS ou Pré-Op/P-83. Após um impacto há uma breve imunidade para evitar dano duplicado. **Remarcação de retorno** e **Urgente** têm entrada mais próxima, deslocamento mais rápido, aviso curto e sinais de perigo. Cada um aparece exatamente uma vez por tentativa, sem reaparecer ao voltar pelo corredor; reiniciar a fase permite novos encontros.
+- No IEEI, `E` ou clique próximo abre o tratamento; `1–4` ou botões escolhem a ferramenta. A sujeira/ferrugem e a pintura mudam localmente. Use a escada para alcançar o suporte. O progresso parcial é preservado durante a tentativa.
 - No IED, clique em uma máquina próxima. `Espaço`/botão Alinhar registra a coincidência entre marcas; `← →` ajustam a rotação no segundo desafio. O painel também oferece botões de toque e pausa. Cada erro de alinhamento custa 3s; sair da faixa verde zera o período de estabilidade e desvios de rotação podem custar 2s, com intervalo entre penalidades.
 - Na Pré-Op, `E` ou clique próximo abre o quadro, os sistemas e os arquivos, ou registra um ponto de campo. A prancheta leva dois itens; **Devolver** os disponibiliza na origem. Arraste uma evidência para a área de entrega ou selecione o cartão e clique em **Entregar**. Três sistemas prontos não encerram a fase: volte ao terminal inicial e feche as TAPs. A revisão surpresa é única e nunca reabre um sistema concluído.
 - O som inicia com o gesto de entrar na fase. `♪` liga/desliga música e efeitos; o controle de volume ajusta ambos. Preferências ficam no navegador. Pausa, troca de fase e saída interrompem a reprodução sem sobrepor trilhas.
@@ -38,6 +39,7 @@ As sequências são simplificações lúdicas, sem valor de procedimento de enge
 - **Campanha:** SMS → IEEI → IED → PSPO → Pré-Op/P-83; conquistas salvas em `localStorage` neste navegador.
 - **Livre:** as cinco fases jogáveis ficam acessíveis em qualquer ordem. Vitórias no Livre não desbloqueiam a campanha.
 - A perda de foco pausa a partida; o jogador retoma explicitamente. Durante os painéis de tratamento o tempo continua correndo.
+- A vitória inicia uma celebração de 2,8 segundos com pose própria de cada personagem, seguida da tela com pontuação. Relógio e perigos ficam parados; pausa/perda de foco também pausa a celebração.
 - Falhas abrem uma tela de resultado com **Recomeçar fase**, que reinicia prazo, pontos e estado.
 - Cada desvio SMS só pode ser registrado uma vez. Se as oportunidades restantes não permitem cinco acertos, a tentativa termina e oferece reinício.
 
@@ -48,6 +50,8 @@ As sequências são simplificações lúdicas, sem valor de procedimento de enge
 - `dist/engine.js`: movimento, câmera, interações, tempo e ciclo do jogo.
 - `dist/rules.js`: regras determinísticas isoladas.
 - `dist/renderer.js`, `dist/office-renderer.js`, `dist/ied-renderer.js` e `dist/preop-renderer.js`: toda a arte original em Canvas 2D; sem bibliotecas, fontes ou imagens remotas.
+- `dist/repair-model.js`, `dist/repair-ui.js`, `dist/repair-ui.css`: cobertura espacial, gestos por ferramenta e painel de tratamento IEEI.
+- `dist/celebration-renderer.js`: gestos, poses e efeitos de vitória.
 - `dist/preop-model.js`, `dist/preop-ui.js`: pendências, evidências, prancheta e painéis da Pré-Op.
 - `dist/audio.js`: cinco composições originais em estilo chiptune, sintetizadas por Web Audio, e efeitos de interação. Não utiliza gravações ou melodias de Super Mario.
 - `tests/game.test.mjs`, `tests/audio.test.mjs`: integração da engine e renderer, regras da Pré-Op e ciclo de reprodução com ambiente simulado.
